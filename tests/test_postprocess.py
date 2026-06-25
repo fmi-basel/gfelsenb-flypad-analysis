@@ -187,6 +187,13 @@ def test_flag_non_eaters_odd_trailing_channel() -> None:
     assert mask.tolist() == [False, False, True]
 
 
+def test_flag_non_eaters_threshold_is_inclusive() -> None:
+    # MATLAB drops flies with "<=2" bouts; count == threshold must be removed.
+    counts = [2, 3, 1, 4]  # substrate rule: 2<=2 remove, 3 keep, 1 remove, 4 keep
+    mask = flag_non_eaters(counts, remove_global=False, remove_substrate=True, threshold=2)
+    assert mask.tolist() == [True, False, True, False]
+
+
 def test_assess_quality_no_removal_on_clean_signal() -> None:
     rng = np.random.default_rng(0)
     raw = rng.integers(100, 3000, size=(1000, 8))  # no saturation, no zeros

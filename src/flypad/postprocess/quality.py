@@ -62,30 +62,34 @@ def flag_non_eaters(
     remove_substrate: bool = False,
     threshold: int = 2,
 ) -> BoolArray:
-    """Flag non-eater channels from per-channel feeding-event counts.
+    """Flag non-eater channels from per-channel event counts.
+
+    A channel/fly is a non-eater when its count is ``<= threshold`` — MATLAB v2.2
+    drops flies with "≤2 activity bouts" at the default ``NonEaterThreshold = 2``, so
+    the comparison is inclusive of the threshold (``counts`` are usually activity-bout
+    counts; feeding-burst counts also work).
 
     Parameters
     ----------
-    counts : per-channel number of feeding events (feeding bursts by default).
-    remove_substrate : drop an individual channel with ``count < threshold``.
+    counts : per-channel event count (activity bouts by default).
+    remove_substrate : drop an individual channel with ``count <= threshold``.
     remove_global : drop *both* channels of an arena (``2k`` / ``2k+1``) when the
-        arena's combined count is ``< threshold`` — i.e. the fly barely fed on either
-        food source.
-    threshold : minimum feeding-event count to be kept (a channel/arena with strictly
-        fewer events is a non-eater).
+        arena's combined count is ``<= threshold`` — i.e. the fly barely did anything
+        on either food source.
+    threshold : a channel/arena with at most this many events is a non-eater.
 
     Returns a boolean mask (``True`` = remove).
     """
     n = np.asarray(counts, dtype=np.int64)
     remove = np.zeros(n.shape, dtype=bool)
     if remove_substrate:
-        remove |= n < threshold
+        remove |= n <= threshold
     if remove_global:
         pair = n.size // 2
-        arena = n[: pair * 2].reshape(pair, 2).sum(axis=1) < threshold
+        arena = n[: pair * 2].reshape(pair, 2).sum(axis=1) <= threshold
         remove[: pair * 2] |= np.repeat(arena, 2)
         if n.size % 2:  # odd trailing channel has no partner -> judge it alone
-            remove[-1] |= n[-1] < threshold
+            remove[-1] |= n[-1] <= threshold
     return remove
 
 

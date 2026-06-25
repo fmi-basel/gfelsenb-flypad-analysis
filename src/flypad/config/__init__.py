@@ -16,6 +16,7 @@ from flypad.config.models import (
     Hardware,
     Mode,
     Pairing,
+    Stats,
     ThresholdMethod,
 )
 from flypad.config.schema import config_json_schema, write_schema
@@ -29,6 +30,7 @@ __all__ = [
     "Hardware",
     "Mode",
     "Pairing",
+    "Stats",
     "ThresholdMethod",
     "apply_overrides",
     "config_json_schema",

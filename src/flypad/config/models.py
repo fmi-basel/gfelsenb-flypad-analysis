@@ -138,6 +138,17 @@ class Analysis(BaseModel):
     cumulative_bins: int = Field(1000, gt=0)
 
 
+class Stats(BaseModel):
+    """Summary aggregation and significance-testing parameters (design §10)."""
+
+    model_config = _Strict
+    n_permutations: int = Field(10_000, gt=0)
+    seed: int | None = None
+    alternative: Literal["two-sided", "less", "greater"] = "two-sided"
+    ci_level: float = Field(0.95, gt=0.0, lt=1.0)
+    multiple_comparison: Literal["none", "bonferroni", "holm"] = "holm"
+
+
 class Metadata(BaseModel):
     """Experiment metadata / sidecar parsing (design §17)."""
 
@@ -194,6 +205,7 @@ class Config(BaseModel):
     feeding_bursts: FeedingBursts = Field(default_factory=FeedingBursts)
     non_eaters: NonEaters = Field(default_factory=NonEaters)
     analysis: Analysis = Field(default_factory=Analysis)
+    stats: Stats = Field(default_factory=Stats)
     metadata: Metadata = Field(default_factory=Metadata)
     output: Output = Field(default_factory=Output)
     plotting: Plotting = Field(default_factory=Plotting)

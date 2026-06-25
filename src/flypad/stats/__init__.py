@@ -1,1 +1,63 @@
-"""flypad.stats — stub; implemented in a later milestone (see design doc)."""
+"""Statistics: summaries, distributions, and significance tests (design §10, M5)."""
+
+from flypad.stats.distributions import (
+    ccdf,
+    ccdf_linear,
+    common_grid,
+    cum_difference,
+    cumulative_time_course,
+    icdf,
+    icdf_linear,
+    quantile,
+)
+from flypad.stats.summaries import (
+    METRIC_COLUMNS,
+    ExperimentSummary,
+    apply_qc_removal,
+    build_event_table,
+    channel_metrics,
+    dots_table,
+    export_table,
+    mark_non_eaters,
+    per_condition_summary,
+    per_fly_summary,
+    summarize_experiment,
+)
+from flypad.stats.tests import (
+    PermutationResult,
+    PolyFit,
+    adjust_pvalues,
+    fit_poly_with_rsquare,
+    pairwise_comparisons,
+    permutation_test,
+    permutation_test_ccdf,
+)
+
+__all__ = [
+    "METRIC_COLUMNS",
+    "ExperimentSummary",
+    "PermutationResult",
+    "PolyFit",
+    "adjust_pvalues",
+    "apply_qc_removal",
+    "build_event_table",
+    "ccdf",
+    "ccdf_linear",
+    "channel_metrics",
+    "common_grid",
+    "cum_difference",
+    "cumulative_time_course",
+    "dots_table",
+    "export_table",
+    "fit_poly_with_rsquare",
+    "icdf",
+    "icdf_linear",
+    "mark_non_eaters",
+    "pairwise_comparisons",
+    "per_condition_summary",
+    "per_fly_summary",
+    "permutation_test",
+    "permutation_test_ccdf",
+    "quantile",
+    "summarize_experiment",
+]
