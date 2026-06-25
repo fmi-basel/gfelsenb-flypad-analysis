@@ -1,0 +1,11 @@
+# Example flypad experiment config (skeleton — see design §6 for the full schema).
+mode: matlab_compat
+
+hardware:
+  n_channels: 96          # "48 flies" board (matches the 20240215 sample fixture)
+  sampling_rate_hz: 100
+
+acquisition:
+  duration_samples: 425391  # full length of the 20240215 recordings
+
+pipeline_order: []          # populated as detection stages land (M2-M3)

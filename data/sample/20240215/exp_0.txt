@@ -1,0 +1,26 @@
+#flyPAD starvation test
+
+## conditions
+- 1:fully fed
+- 2:24h wet starved 
+- 3:44h wet starved
+- 4:24h wet starved + 30 min refed
+- 5:44h wet starved + 30 min refed
+
+## substrates
+left: 100 mM sucrose 1% agarose
+right: 100 mM sucrose 1% agarose
+
+## log
+1: fed,F
+2: 24h,F
+3: 44h,F
+4: fed, M
+5: 24h, M
+6: 44h, M
+7: 24h refed, F
+8 : 44h refed, F
+9: 24h refed, M
+10: 44h refed,M
+11: 44h refed,F
+12: 44h refed,M

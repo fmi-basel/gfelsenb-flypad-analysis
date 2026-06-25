@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# uv / virtualenv
+.venv/
+# (uv.lock IS tracked — do not ignore it)
+
+# Tooling caches
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# OS
+.DS_Store
+
+# Large raw flyPAD recordings — kept locally as fixtures, NOT committed.
+# (The small ground-truth .mat, the .csv map, and the .txt sidecars ARE tracked.)
+data/**/CapacitanceData_*
