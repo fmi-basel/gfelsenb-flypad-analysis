@@ -40,6 +40,27 @@ def _deref(schema: dict[str, Any], node: dict[str, Any]) -> dict[str, Any]:
     return target
 
 
+def iter_config_fields(schema: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
+    """Flatten the schema into ``(dotted_path, leaf_field_schema)`` pairs.
+
+    Recurses through submodels (following ``$ref``) so nested fields like
+    ``sip_detection.threshold.window`` are reachable — the basis for a fully
+    schema-driven config form.
+    """
+    out: list[tuple[str, dict[str, Any]]] = []
+
+    def walk(props: dict[str, Any], prefix: str) -> None:
+        for name, node in props.items():
+            resolved = _deref(schema, node)
+            if "properties" in resolved:
+                walk(resolved["properties"], f"{prefix}{name}.")
+            else:
+                out.append((f"{prefix}{name}", resolved))
+
+    walk(schema.get("properties", {}), "")
+    return out
+
+
 def resolve_field(schema: dict[str, Any], dotted_path: str) -> dict[str, Any] | None:
     """Resolve a dotted config path (e.g. ``sip_detection.equality_factor``) to its
     leaf field schema (``type`` / ``default`` / bounds / ``enum``), or ``None``.

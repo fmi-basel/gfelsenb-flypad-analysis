@@ -47,6 +47,24 @@ def _cleanup(qapp: QApplication):
     qapp.processEvents()
 
 
+@pytest.fixture(autouse=True)
+def _no_dialogs(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stub modal dialogs so they never block headless tests."""
+    from flypad.gui import app as gui_app
+
+    monkeypatch.setattr(gui_app.QMessageBox, "critical", staticmethod(lambda *a, **k: 0))
+
+
+@pytest.fixture(autouse=True)
+def _clean_settings() -> object:
+    """Isolate persisted QSettings so windows start fresh and tests don't leak."""
+    from qtpy.QtCore import QSettings
+
+    QSettings("flypad", "flypad").clear()
+    yield
+    QSettings("flypad", "flypad").clear()
+
+
 def _make_dataset(tmp_path: Path, n_channels: int = 8, n_time: int = 3000) -> tuple[Path, Path]:
     arr = np.full((n_time, n_channels), 1000, dtype=np.uint16)
     for t0 in range(200, n_time - 200, 300):
@@ -155,7 +173,7 @@ def test_main_window_renders_results(qapp: QApplication, tmp_path: Path) -> None
     assert "Done" in window.status.text()
     assert window.table.rowCount() >= 1  # per-condition table filled
     assert window.run_button.isEnabled()
-    assert window._canvas_layout.count() == 1  # embedded dashboard canvas
+    assert window._canvas_layout.count() == 2  # navigation toolbar + canvas
 
 
 def test_main_window_threaded_run_writes_outputs(qapp: QApplication, tmp_path: Path) -> None:
@@ -180,3 +198,44 @@ def test_main_window_threaded_run_writes_outputs(qapp: QApplication, tmp_path: P
     assert not thread.isRunning()
     assert (out / "per_fly.csv").exists()
     assert window.run_button.isEnabled()  # re-enabled after finish
+
+
+# --------------------------------------------------------------------------- #
+# M8 improvements: schema panel, load, progress, metric selector
+# --------------------------------------------------------------------------- #
+def test_config_panel_is_schema_driven(qapp: QApplication) -> None:
+    panel = ConfigPanel()
+    assert "sip_detection.threshold.window" in panel._editors  # nested field surfaced
+    assert len(panel._editors) > 10  # the whole scientific config, not a curated few
+
+
+def test_config_panel_load_into_form(qapp: QApplication) -> None:
+    from flypad.config import load_config
+
+    panel = ConfigPanel()
+    cfg = load_config(preset="matlab_compat", overrides=["feeding_bursts.min_sips=9"])
+    panel.load_into_form(cfg)
+    editor, default = panel._editors["feeding_bursts.min_sips"]
+    assert panel._value(editor) == 9
+    assert default == 9  # loaded value becomes the baseline
+    assert "feeding_bursts.min_sips=9" not in panel.overrides()  # not a spurious override
+
+
+def test_progress_bar_tracks_steps(qapp: QApplication) -> None:
+    window = MainWindow()
+    window._append_log("detect [2/5] some_file")
+    assert window.progress.maximum() == 5
+    assert window.progress.value() == 2
+
+
+def test_metric_selector_refreshes_views(qapp: QApplication, tmp_path: Path) -> None:
+    from flypad.config import load_config
+
+    data_dir, cfg_path = _make_dataset(tmp_path)
+    result = run_pipeline_job(
+        data_dir, load_config(cfg_path, preset="matlab_compat"), tmp_path / "out", make_plots=False
+    )
+    window = MainWindow()
+    window._on_finished(result)
+    window.metric_combo.setCurrentText("n_feeding_bursts")  # triggers a refresh
+    assert window.table.rowCount() >= 1
