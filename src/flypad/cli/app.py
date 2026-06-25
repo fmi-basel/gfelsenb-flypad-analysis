@@ -18,8 +18,6 @@ app = typer.Typer(
 )
 console = Console()
 
-_TODO = "[yellow]not yet implemented[/] (M0 scaffold)."
-
 
 @app.command()
 def version() -> None:
@@ -192,8 +190,16 @@ def plot(
 
 @app.command()
 def gui() -> None:
-    """Launch the desktop GUI (requires the 'gui' extra)."""
-    console.print(f"[bold]gui[/] — {_TODO}")
+    """Launch the desktop GUI (requires the 'gui' extra: uv sync --group gui)."""
+    try:
+        from flypad.gui import launch
+    except ImportError as exc:  # PySide6/qtpy not installed
+        console.print(
+            "[red]GUI dependencies missing[/] — install with "
+            "[bold]uv sync --group gui[/] (PySide6 + qtpy)."
+        )
+        raise typer.Exit(code=1) from exc
+    raise typer.Exit(code=launch())
 
 
 config_app = typer.Typer(no_args_is_help=True, help="Inspect, validate and resolve configuration.")

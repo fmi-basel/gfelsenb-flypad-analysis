@@ -8,8 +8,8 @@ activity bouts → feeding bursts & QC → statistics & figures).
 - **Fully YAML-configurable** (Pydantic-validated); no hard-coded parameters.
 - **Library + CLI + GUI** over one Qt-free core.
 
-> Status: **M0–M7 done** — the full scientific pipeline (detect → post-process → stats → figures) runs
-> end-to-end from the CLI. GUI (M8) and packaged release (M9) remain. See
+> Status: **M0–M8 done** — the full scientific pipeline (detect → post-process → stats → figures) runs
+> end-to-end from the CLI and the PySide6 GUI. Packaged release (M9) remains. See
 > `flypad_new_software_design.html` for the architecture, locked decisions, and milestone roadmap.
 
 ## Quickstart (uv)
@@ -41,7 +41,18 @@ uv run flypad validate data/sample/20240215 \
 ```
 
 Every command takes `-c/--config`, `--mode matlab_compat|corrected`, and repeatable `--set key=value`
-overrides. Outputs land as tidy Parquet/CSV tables plus PNG/EPS figures in the results directory.
+overrides. Outputs land as tidy Parquet/CSV tables plus PNG/PDF figures in the results directory.
+
+## Desktop GUI
+
+```bash
+uv sync --group gui     # install PySide6 + qtpy (one-time)
+uv run flypad gui       # drag-drop a folder, tweak config, Run
+```
+
+A thin Qt view over the same pipeline: drag-drop a recordings folder, adjust the schema-driven
+config panel, and run on a worker thread; the per-condition table and dashboard appear when it
+finishes. GUI tests run headless (offscreen Qt) via `uv run --group gui pytest`.
 
 ## Sample data
 

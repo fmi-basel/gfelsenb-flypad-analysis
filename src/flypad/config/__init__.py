@@ -19,7 +19,7 @@ from flypad.config.models import (
     Stats,
     ThresholdMethod,
 )
-from flypad.config.schema import config_json_schema, write_schema
+from flypad.config.schema import config_json_schema, resolve_field, write_schema
 
 __all__ = [
     "KNOWN_PRESETS",
@@ -38,5 +38,6 @@ __all__ = [
     "load_config",
     "load_preset",
     "read_yaml_file",
+    "resolve_field",
     "write_schema",
 ]

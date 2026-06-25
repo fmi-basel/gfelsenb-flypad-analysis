@@ -66,6 +66,16 @@ strict = true
 ignore_missing_imports = true
 plugins = ["pydantic.mypy"]
 
+[[tool.mypy.overrides]]
+# The GUI layer subclasses Qt classes (Any when qtpy is absent) and needs a couple of
+# attr-defined ignores for qtpy's dynamic re-exports (Signal). warn_unused_ignores is
+# off here so the same code type-checks whether or not the optional `gui` extra (and
+# thus qtpy's stubs) is installed.
+module = "flypad.gui.*"
+disallow_subclassing_any = false
+disallow_untyped_calls = false
+warn_unused_ignores = false
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"

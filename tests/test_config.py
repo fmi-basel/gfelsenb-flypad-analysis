@@ -91,3 +91,13 @@ def test_example_experiment_validates() -> None:
     assert cfg.hardware.n_channels == 96
     assert cfg.acquisition.duration_samples == 425391
     assert len(cfg.metadata.conditions) == 5
+
+
+def test_resolve_field_follows_refs() -> None:
+    from flypad.config import resolve_field
+
+    schema = config_json_schema()
+    assert resolve_field(schema, "feeding_bursts.min_sips")["type"] == "integer"
+    assert resolve_field(schema, "sip_detection.equality_factor")["default"] == 0.5
+    assert resolve_field(schema, "plotting.vector_format")["enum"] == ["pdf", "eps", "svg", "none"]
+    assert resolve_field(schema, "nonexistent.field") is None
