@@ -15,8 +15,8 @@ import numpy as np
 import numpy.typing as npt
 import pandas as pd
 
-from flypad.plotting.boxplots import median_iqr_plot, tilted_boxplot
-from flypad.plotting.theme import distinguishable_colors, suptitle
+from flypad.plotting.boxplots import Palette, median_iqr_plot, tilted_boxplot
+from flypad.plotting.theme import GRAY, condition_palette, distinguishable_colors, suptitle
 from flypad.stats.distributions import ccdf, icdf
 
 
@@ -30,12 +30,18 @@ def cdf_plot(
     ax: Any | None = None,
     complementary: bool = False,
     colors: Sequence[Any] | None = None,
+    palette: Palette | None = None,
     xlabel: str = "value",
 ) -> Any:
     """Step CDF (or CCDF if ``complementary``) per group."""
     ax = _new_ax(ax)
     labels = list(groups)
-    cols = list(colors) if colors is not None else distinguishable_colors(len(labels))
+    if palette is not None:
+        cols: list[Any] = [palette.get(label, GRAY) for label in labels]
+    elif colors is not None:
+        cols = list(colors)
+    else:
+        cols = distinguishable_colors(len(labels))
     fn = ccdf if complementary else icdf
     for i, label in enumerate(labels):
         x, y = fn(groups[label])
@@ -72,19 +78,21 @@ def standalone_dashboard(
     *,
     group_col: str = "condition_label",
     central: str = "median",
+    tilt_deg: float = 0.0,
     title: str | None = None,
 ) -> Any:
     """A three-panel ``PlotFLYPAD_Standalone`` dashboard for one metric.
 
     Panels: tilted box plot (per-fly distribution), a central-tendency summary
     (median+IQR or mean+CI), and the metric's CCDF. ``central`` selects ``"median"``
-    (``PlotFLYPAD_Standalone_MEDIAN``) or ``"mean"`` (``..._MEAN``).
+    (``PlotFLYPAD_Standalone_MEDIAN``) or ``"mean"`` (``..._MEAN``). A stable
+    ``condition_palette`` keeps each condition the same colour across panels.
     """
     groups = _grouped_values(per_fly, metric, group_col)
-    colors = distinguishable_colors(len(groups))
+    palette = condition_palette(groups.keys())
     fig, axes = plt.subplots(1, 3, figsize=(13.5, 4.0))
 
-    tilted_boxplot(groups, ax=axes[0], colors=colors, ylabel=metric)
+    tilted_boxplot(groups, ax=axes[0], palette=palette, tilt_deg=tilt_deg, ylabel=metric)
     axes[0].set_title("per-fly distribution")
 
     if central == "mean":
@@ -97,7 +105,7 @@ def standalone_dashboard(
         axes[1].set_title("median ± IQR")
     axes[1].set_ylabel(metric)
 
-    ccdf_plot(groups, ax=axes[2], colors=colors, xlabel=metric)
+    ccdf_plot(groups, ax=axes[2], palette=palette, xlabel=metric)
     axes[2].set_title("CCDF")
 
     fig.tight_layout()

@@ -15,7 +15,7 @@ Presentation only: this package may import matplotlib, but the science core
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from typing import Any, cast
 
@@ -125,6 +125,21 @@ def distinguishable_colors(
         chosen.append((float(rgb[0]), float(rgb[1]), float(rgb[2])))
         last_lab = cand_lab[idx]
     return chosen
+
+
+def condition_palette(
+    labels: Iterable[str],
+    *,
+    background: str = "white",
+) -> dict[str, tuple[float, float, float]]:
+    """Stable label → colour map (sorted unique labels → distinguishable colours).
+
+    Build it once from the full set of condition labels and pass it to every plotting
+    function so a condition keeps the same colour across all panels and figures.
+    """
+    unique = sorted(dict.fromkeys(str(label) for label in labels))
+    colors = distinguishable_colors(len(unique), background=background)
+    return dict(zip(unique, colors, strict=True))
 
 
 def tight_subplot(

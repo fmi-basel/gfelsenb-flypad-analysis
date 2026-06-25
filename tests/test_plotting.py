@@ -12,13 +12,16 @@ import pytest
 from flypad.plotting import (
     ccdf_plot,
     cdf_plot,
+    condition_palette,
     cumulative_timecourse_plot,
     distinguishable_colors,
     jbfill,
     raster_plot,
     save_figure,
+    shaded_lines,
     shaded_plot,
     standalone_dashboard,
+    substrate_comparison,
     theme_context,
     tight_subplot,
     tilted_boxplot,
@@ -214,3 +217,56 @@ def test_plotting_config_defaults_to_pdf() -> None:
     from flypad.config.models import Plotting
 
     assert Plotting().vector_format == "pdf"
+
+
+# --------------------------------------------------------------------------- #
+# M6 improvements: palette, substrate, tilt/N, units, time-course bands
+# --------------------------------------------------------------------------- #
+def test_condition_palette_is_stable_by_label() -> None:
+    p1 = condition_palette(["starved", "fed", "refed"])
+    p2 = condition_palette(["fed", "refed", "starved"])  # different order
+    assert p1 == p2  # keyed by sorted label, order-independent
+    assert set(p1) == {"fed", "refed", "starved"}
+
+
+def test_tilted_boxplot_tilt_and_n_annotation() -> None:
+    groups = {"a": [1.0, 2, 3, 4], "b": [2.0, 3, 4, 5]}
+    ax = tilted_boxplot(groups, tilt_deg=12.0, show_n=True)
+    assert len(ax.patches) == 2  # boxes still drawn when tilted
+    texts = [t.get_text() for t in ax.texts]
+    assert "n=4" in texts  # N annotation present
+
+
+def test_tilted_boxplot_palette_colors_boxes() -> None:
+    palette = condition_palette(["a", "b"])
+    ax = tilted_boxplot({"a": [1.0, 2, 3], "b": [4.0, 5, 6]}, palette=palette, show_points=False)
+    facecolor = ax.patches[0].get_facecolor()[:3]
+    assert np.allclose(facecolor, palette["a"], atol=1e-6)
+
+
+def test_substrate_comparison_two_boxes_per_condition() -> None:
+    per_fly = pd.DataFrame(
+        {
+            "condition_label": ["a", "a", "b", "b"],
+            "substrate_side": ["left", "right", "left", "right"],
+            "n_sips": [10.0, 4.0, 8.0, 6.0],
+        }
+    )
+    ax = substrate_comparison(per_fly, "n_sips", ylabel="n_sips")
+    assert len(ax.patches) == 4  # 2 conditions x (left, right)
+    assert ax.get_legend() is not None
+
+
+def test_raster_seconds_axis() -> None:
+    ax = raster_plot([np.array([100, 200])], sampling_rate_hz=100)
+    assert ax.get_xlabel() == "time (s)"
+
+
+def test_shaded_lines_band_per_series() -> None:
+    series = {
+        "a": (np.arange(5.0), np.arange(5.0), np.ones(5)),
+        "b": (np.arange(5.0), 2 * np.arange(5.0), np.ones(5)),
+    }
+    ax = shaded_lines(series, palette=condition_palette(["a", "b"]))
+    assert len(ax.lines) == 2
+    assert len(ax.collections) == 2  # one shaded band per series

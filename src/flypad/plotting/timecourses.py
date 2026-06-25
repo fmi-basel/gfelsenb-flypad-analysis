@@ -13,7 +13,17 @@ import matplotlib.pyplot as plt
 import numpy as np
 import numpy.typing as npt
 
-from flypad.plotting.theme import distinguishable_colors
+from flypad.plotting.theme import GRAY, distinguishable_colors
+
+
+def _palette_colors(
+    labels: Sequence[str], colors: Sequence[Any] | None, palette: Mapping[str, Any] | None
+) -> list[Any]:
+    if palette is not None:
+        return [palette.get(label, GRAY) for label in labels]
+    if colors is not None:
+        return list(colors)
+    return distinguishable_colors(len(labels))
 
 
 def _new_ax(ax: Any | None, figsize: tuple[float, float] = (8.0, 3.2)) -> Any:
@@ -65,16 +75,21 @@ def shaded_lines(
     *,
     ax: Any | None = None,
     colors: Sequence[Any] | None = None,
+    palette: Mapping[str, Any] | None = None,
+    xlabel: str = "time (s)",
+    ylabel: str = "cumulative sips per fly",
 ) -> Any:
     """Overlay several ``label -> (x, mean, err)`` shaded curves with a legend."""
     ax = _new_ax(ax)
     labels = list(series)
-    cols = list(colors) if colors is not None else distinguishable_colors(len(labels))
+    cols = _palette_colors(labels, colors, palette)
     for i, label in enumerate(labels):
         x, y, err = series[label]
         shaded_plot(ax, x, y, err, color=cols[i], label=label)
     if labels:
         ax.legend(frameon=False, fontsize=9)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
     return ax
 
 
@@ -83,13 +98,14 @@ def cumulative_timecourse_plot(
     *,
     ax: Any | None = None,
     colors: Sequence[Any] | None = None,
-    xlabel: str = "time (samples)",
+    palette: Mapping[str, Any] | None = None,
+    xlabel: str = "time (s)",
     ylabel: str = "cumulative events",
 ) -> Any:
     """Plot ``label -> (time, cumulative_count)`` curves (cumulative feeding/activity)."""
     ax = _new_ax(ax)
     labels = list(curves)
-    cols = list(colors) if colors is not None else distinguishable_colors(len(labels))
+    cols = _palette_colors(labels, colors, palette)
     for i, label in enumerate(labels):
         x, y = curves[label]
         ax.plot(x, y, color=cols[i], lw=1.8, label=label)

@@ -16,11 +16,13 @@ from flypad.stats.summaries import (
     apply_qc_removal,
     build_event_table,
     channel_metrics,
+    cumulative_timecourse_by_condition,
     dots_table,
     export_table,
     mark_non_eaters,
     per_condition_summary,
     per_fly_summary,
+    preference_index,
     summarize_experiment,
 )
 from flypad.stats.tests import (
@@ -47,6 +49,7 @@ __all__ = [
     "common_grid",
     "cum_difference",
     "cumulative_time_course",
+    "cumulative_timecourse_by_condition",
     "dots_table",
     "export_table",
     "fit_poly_with_rsquare",
@@ -58,6 +61,7 @@ __all__ = [
     "per_fly_summary",
     "permutation_test",
     "permutation_test_ccdf",
+    "preference_index",
     "quantile",
     "summarize_experiment",
 ]

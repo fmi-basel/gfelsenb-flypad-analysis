@@ -1,8 +1,9 @@
 """Box / spread / error-bar plots (design §10, M6).
 
 Ports the MATLAB v2.2 box-plot family: ``TiltedBoxPlot`` (boxes + the individual
-per-fly dots that make flyPAD figures legible), ``plotSpread`` (jittered points),
-``Median_IQR_Plot`` / ``CI_Plot`` (point ± interval), and ``myErrorbar``.
+per-fly dots that make flyPAD figures legible, optionally sheared for the classic
+tilted look), ``plotSpread`` (jittered points), ``Median_IQR_Plot`` / ``CI_Plot``
+(point ± interval), ``myErrorbar``, and a two-choice substrate comparison.
 """
 
 from __future__ import annotations
@@ -13,10 +14,14 @@ from typing import Any
 import matplotlib.pyplot as plt
 import numpy as np
 import numpy.typing as npt
+import pandas as pd
+from matplotlib.lines import Line2D
+from matplotlib.transforms import Affine2D, blended_transform_factory
 
-from flypad.plotting.theme import GRAY, INK, distinguishable_colors
+from flypad.plotting.theme import GRAY, INK, MATLAB, PYTHON, distinguishable_colors
 
 FloatArray = npt.NDArray[np.float64]
+Palette = Mapping[str, Any]
 
 
 def _as_groups(groups: Mapping[str, npt.ArrayLike]) -> tuple[list[str], list[FloatArray]]:
@@ -28,14 +33,33 @@ def _as_groups(groups: Mapping[str, npt.ArrayLike]) -> tuple[list[str], list[Flo
     return labels, arrays
 
 
-def _colors(n: int, colors: Sequence[Any] | None) -> list[Any]:
+def _resolve_colors(
+    labels: Sequence[str],
+    colors: Sequence[Any] | None,
+    palette: Palette | None,
+) -> list[Any]:
+    if palette is not None:
+        return [palette.get(label, GRAY) for label in labels]
     if colors is not None:
         return list(colors)
-    return distinguishable_colors(n)
+    return distinguishable_colors(len(labels))
 
 
 def _new_ax(ax: Any | None) -> Any:
-    return plt.subplots(figsize=(1.6 + 0.0, 4.0))[1] if ax is None else ax
+    return plt.subplots(figsize=(4.6, 4.0))[1] if ax is None else ax
+
+
+def _tilt_box(
+    bp: dict[str, list[Any]], index: int, center: tuple[float, float], tilt_deg: float, ax: Any
+) -> None:
+    """Shear the ``index``-th box (box/whiskers/caps/median) around ``center``."""
+    cx, cy = center
+    shear = Affine2D().translate(-cx, -cy).skew_deg(tilt_deg, 0).translate(cx, cy) + ax.transData
+    artists = [bp["boxes"][index], bp["medians"][index]]
+    artists += bp["whiskers"][2 * index : 2 * index + 2]
+    artists += bp["caps"][2 * index : 2 * index + 2]
+    for artist in artists:
+        artist.set_transform(shear)
 
 
 def my_errorbar(
@@ -65,6 +89,7 @@ def plot_spread(
     *,
     positions: Sequence[float] | None = None,
     colors: Sequence[Any] | None = None,
+    palette: Palette | None = None,
     jitter: float = 0.08,
     seed: int = 0,
     size: float = 14,
@@ -72,7 +97,7 @@ def plot_spread(
     """Jittered scatter of the individual values in each group (``plotSpread``)."""
     labels, arrays = _as_groups(groups)
     pos = list(positions) if positions is not None else list(range(len(labels)))
-    cols = _colors(len(labels), colors)
+    cols = _resolve_colors(labels, colors, palette)
     rng = np.random.default_rng(seed)
     for i, a in enumerate(arrays):
         if a.size == 0:
@@ -87,18 +112,21 @@ def tilted_boxplot(
     *,
     ax: Any | None = None,
     colors: Sequence[Any] | None = None,
+    palette: Palette | None = None,
     show_points: bool = True,
+    show_n: bool = True,
+    tilt_deg: float = 0.0,
     rotation: float = 30.0,
     ylabel: str | None = None,
 ) -> Any:
     """Box plot per group with overlaid per-fly dots and tilted category labels.
 
-    The flyPAD ``TiltedBoxPlot``: a thin box (median + IQR + whiskers, no fliers)
-    behind the raw per-fly points, with rotated x-tick labels.
+    ``tilt_deg`` shears the box glyphs for the classic flyPAD tilted look (0 = upright);
+    ``show_n`` annotates each group's fly count beneath the axis.
     """
     ax = _new_ax(ax)
     labels, arrays = _as_groups(groups)
-    cols = _colors(len(labels), colors)
+    cols = _resolve_colors(labels, colors, palette)
     positions = list(range(len(labels)))
 
     drawable = [(i, a) for i, a in enumerate(arrays) if a.size]
@@ -114,12 +142,28 @@ def tilted_boxplot(
             capprops={"color": GRAY, "linewidth": 1.0},
             boxprops={"edgecolor": GRAY, "linewidth": 1.0},
         )
-        for (i, _), patch in zip(drawable, bp["boxes"], strict=True):
+        for k, ((i, a), patch) in enumerate(zip(drawable, bp["boxes"], strict=True)):
             patch.set_facecolor(cols[i])
             patch.set_alpha(0.25)
+            if tilt_deg:
+                _tilt_box(bp, k, (positions[i], float(np.median(a))), tilt_deg, ax)
 
     if show_points:
         plot_spread(ax, groups, positions=positions, colors=cols)
+
+    if show_n:
+        blended = blended_transform_factory(ax.transData, ax.transAxes)
+        for i, a in enumerate(arrays):
+            ax.text(
+                positions[i],
+                -0.04,
+                f"n={a.size}",
+                transform=blended,
+                ha="center",
+                va="top",
+                fontsize=8,
+                color=GRAY,
+            )
 
     ax.set_xticks(positions)
     ax.set_xticklabels(labels, rotation=rotation, ha="right" if rotation else "center")
@@ -173,4 +217,58 @@ def ci_plot(
         my_errorbar(ax, [pos[i]], [mean], [half], color=color)
     ax.set_xticks(pos)
     ax.set_xticklabels(labels, rotation=rotation, ha="right" if rotation else "center")
+    return ax
+
+
+def substrate_comparison(
+    per_fly: pd.DataFrame,
+    metric: str,
+    *,
+    ax: Any | None = None,
+    group_col: str = "condition_label",
+    side_col: str = "substrate_side",
+    rotation: float = 30.0,
+    ylabel: str | None = None,
+) -> Any:
+    """Two-choice comparison: side-by-side left/right boxes per condition.
+
+    Each condition gets two offset boxes (left vs right substrate), so substrate
+    preference is visible at a glance.
+    """
+    ax = _new_ax(ax)
+    conditions = sorted(per_fly[group_col].dropna().unique(), key=str)
+    sides = [("left", PYTHON), ("right", MATLAB)]
+    width, offset = 0.34, 0.2
+    for ci, condition in enumerate(conditions):
+        for side, color in sides:
+            sign = -1 if side == "left" else 1
+            mask = (per_fly[group_col] == condition) & (per_fly[side_col] == side)
+            values = per_fly.loc[mask, metric].to_numpy(dtype=np.float64)
+            values = values[np.isfinite(values)]
+            if values.size == 0:
+                continue
+            box = ax.boxplot(
+                values,
+                positions=[ci + sign * offset],
+                widths=width,
+                showfliers=False,
+                patch_artist=True,
+                medianprops={"color": INK, "linewidth": 1.4},
+                whiskerprops={"color": GRAY},
+                capprops={"color": GRAY},
+                boxprops={"edgecolor": GRAY},
+            )
+            box["boxes"][0].set_facecolor(color)
+            box["boxes"][0].set_alpha(0.4)
+    ax.set_xticks(range(len(conditions)))
+    ax.set_xticklabels(
+        [str(c) for c in conditions], rotation=rotation, ha="right" if rotation else "center"
+    )
+    handles = [
+        Line2D([0], [0], color=PYTHON, lw=6, alpha=0.4, label="left"),
+        Line2D([0], [0], color=MATLAB, lw=6, alpha=0.4, label="right"),
+    ]
+    ax.legend(handles=handles, frameon=False, fontsize=9)
+    if ylabel:
+        ax.set_ylabel(ylabel)
     return ax

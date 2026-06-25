@@ -165,7 +165,9 @@ def stats(
 def plot(
     results_dir: str,
     kind: str = typer.Option(
-        "dashboard,boxplot,cdf,raster", "--kind", help="Comma-separated figure kinds."
+        "dashboard,boxplot,cdf,raster,timecourse,substrate",
+        "--kind",
+        help="Comma-separated figure kinds.",
     ),
     metric: str = typer.Option("n_sips", "--metric", help="Metric to plot."),
     config: str | None = typer.Option(None, "-c", "--config", help="Experiment YAML (styling)."),

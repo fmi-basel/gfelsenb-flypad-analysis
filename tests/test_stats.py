@@ -327,3 +327,45 @@ def test_aggregate_metrics_match_matlab_events() -> None:
 
     assert abs(py_sips - mat_sips) / mat_sips < 0.02  # totals within ~2%
     assert abs(py_dur - mat_dur) / mat_dur < 0.05  # total duration within ~5%
+
+
+# --------------------------------------------------------------------------- #
+# two-choice preference + cumulative time course
+# --------------------------------------------------------------------------- #
+def test_preference_index_pairs_arenas() -> None:
+    from flypad.stats import preference_index
+
+    per_fly = pd.DataFrame(
+        {
+            "file_index": [0, 0, 0, 0],
+            "channel": [0, 1, 2, 3],
+            "condition_label": ["a", "a", "b", "b"],
+            "n_sips": [10, 5, 0, 0],
+        }
+    )
+    pi = preference_index(per_fly).sort_values("arena").reset_index(drop=True)
+    assert len(pi) == 2
+    assert pi.loc[0, "preference"] == pytest.approx((10 - 5) / 15)  # arena 0
+    assert np.isnan(pi.loc[1, "preference"])  # arena 1 ate nothing
+    assert list(pi["condition_label"]) == ["a", "b"]
+
+
+def test_cumulative_timecourse_by_condition() -> None:
+    from flypad.stats import cumulative_timecourse_by_condition
+
+    events = pd.DataFrame(
+        {
+            "file_index": [0, 0, 0, 0, 0],
+            "channel": [0, 0, 2, 2, 2],
+            "condition_label": ["a", "a", "b", "b", "b"],
+            "onset": [10, 90, 10, 50, 90],
+        }
+    )
+    out = cumulative_timecourse_by_condition(events, n_samples=100, n_bins=10, sampling_rate_hz=100)
+    assert set(out) == {"a", "b"}
+    time_s, mean_a, _sem = out["a"]
+    assert len(time_s) == 10
+    assert time_s[-1] == pytest.approx(1.0)  # 100 samples @ 100 Hz = 1 s
+    assert mean_a[-1] == pytest.approx(2.0)  # one fly, 2 sips total
+    assert out["b"][1][-1] == pytest.approx(3.0)
+    assert np.all(np.diff(mean_a) >= 0)  # cumulative is non-decreasing

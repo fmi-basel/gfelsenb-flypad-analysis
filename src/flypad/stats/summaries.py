@@ -27,6 +27,8 @@ from flypad.postprocess.bursts import ChannelBursts
 from flypad.postprocess.quality import flag_non_eaters
 from flypad.postprocess.transitions import classify_in_burst
 
+FloatArray = npt.NDArray[np.float64]
+
 #: Numeric per-fly metrics produced by :func:`channel_metrics`.
 METRIC_COLUMNS = (
     "n_sips",
@@ -315,3 +317,63 @@ def summarize_experiment(
         kept = apply_qc_removal(mark_non_eaters(per_fly, non_eaters))
     per_condition = per_condition_summary(kept, ci_level=ci_level)
     return ExperimentSummary(events=events, per_fly=kept, per_condition=per_condition)
+
+
+def preference_index(
+    per_fly: pd.DataFrame,
+    *,
+    metric: str = "n_sips",
+    group_col: str = "condition_label",
+) -> pd.DataFrame:
+    """Two-choice substrate preference per arena: ``(left - right) / (left + right)``.
+
+    Pairs each arena's even (left) and odd (right) channel. Returns one row per
+    ``(file_index, arena)`` with the per-side metric and the preference index in
+    ``[-1, 1]`` (NaN when the fly ignored both sides).
+    """
+    df = per_fly.copy()
+    df["arena"] = df["channel"] // 2
+    df["side"] = np.where(df["channel"] % 2 == 0, "left", "right")
+    wide = df.pivot_table(
+        index=["file_index", "arena", group_col], columns="side", values=metric, aggfunc="first"
+    ).reset_index()
+    wide.columns.name = None
+    left = wide["left"].astype(float) if "left" in wide else pd.Series(np.nan, index=wide.index)
+    right = wide["right"].astype(float) if "right" in wide else pd.Series(np.nan, index=wide.index)
+    denom = left + right
+    wide["left"] = left
+    wide["right"] = right
+    wide["preference"] = np.where(denom > 0, (left - right) / denom, np.nan)
+    return wide[["file_index", "arena", group_col, "left", "right", "preference"]]
+
+
+def cumulative_timecourse_by_condition(
+    events: pd.DataFrame,
+    n_samples: int,
+    *,
+    n_bins: int = 100,
+    group_col: str = "condition_label",
+    sampling_rate_hz: int = 100,
+) -> dict[str, tuple[FloatArray, FloatArray, FloatArray]]:
+    """Per-condition cumulative feeding curves (mean ± SEM across flies).
+
+    For each fly the cumulative sip count is binned over ``[0, n_samples]``; curves are
+    then averaged within each condition. Returns ``label -> (time_s, mean, sem)``,
+    over flies that produced at least one sip.
+    """
+    edges = np.linspace(0, n_samples, n_bins + 1)
+    time_s = (edges[1:] / sampling_rate_hz).astype(np.float64)
+    buckets: dict[str, list[FloatArray]] = {}
+    for (_fi, _ch), grp in events.groupby(["file_index", "channel"]):
+        counts, _ = np.histogram(grp["onset"].to_numpy(dtype=np.float64), bins=edges)
+        label = str(grp[group_col].iloc[0])
+        buckets.setdefault(label, []).append(np.cumsum(counts).astype(np.float64))
+
+    out: dict[str, tuple[FloatArray, FloatArray, FloatArray]] = {}
+    for label, curves in buckets.items():
+        stack = np.vstack(curves)
+        mean = stack.mean(axis=0)
+        n = stack.shape[0]
+        sem = stack.std(axis=0, ddof=1) / np.sqrt(n) if n > 1 else np.zeros_like(mean)
+        out[label] = (time_s, mean, sem)
+    return out

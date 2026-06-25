@@ -29,14 +29,19 @@ def raster_plot(
     colors: Sequence[Any] | None = None,
     row_labels: Sequence[str] | None = None,
     line_length: float = 0.8,
-    xlabel: str = "sample",
+    sampling_rate_hz: int | None = None,
+    xlabel: str | None = None,
 ) -> Any:
     """Event raster: ``rows[i]`` are the event onsets drawn on raster line ``i``.
 
-    Colours may be given per row (e.g. one colour per condition).
+    Colours may be given per row (e.g. one colour per condition). When
+    ``sampling_rate_hz`` is given, the time axis is shown in seconds.
     """
     ax = _new_ax(ax, len(rows))
-    positions = [np.asarray(r, dtype=np.float64).ravel() for r in rows]
+    scale = 1.0 / sampling_rate_hz if sampling_rate_hz else 1.0
+    positions = [np.asarray(r, dtype=np.float64).ravel() * scale for r in rows]
+    if xlabel is None:
+        xlabel = "time (s)" if sampling_rate_hz else "sample"
     color_arg: Any = INK if colors is None else list(colors)
     ax.eventplot(
         positions,

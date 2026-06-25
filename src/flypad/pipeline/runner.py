@@ -185,25 +185,33 @@ def _kept(per_fly: pd.DataFrame) -> pd.DataFrame:
     return apply_qc_removal(per_fly) if "non_eater" in per_fly.columns else per_fly
 
 
+#: Figure kinds renderable by :func:`render_figures`.
+FIGURE_KINDS = ("dashboard", "boxplot", "cdf", "raster", "timecourse", "substrate")
+
+
 def render_figures(
     per_fly: pd.DataFrame,
     events: pd.DataFrame | None,
     out_dir: str | Path,
     config: Config,
     *,
-    kinds: Sequence[str] = ("dashboard", "boxplot", "cdf", "raster"),
+    kinds: Sequence[str] = FIGURE_KINDS,
     metric: str = "n_sips",
     progress: Progress | None = None,
 ) -> list[Path]:
     """Render the requested figure kinds into ``out_dir/figures``."""
     from flypad.plotting import (
-        cdf_plot,
+        ccdf_plot,
+        condition_palette,
         raster_plot,
         save_figure,
         set_theme,
+        shaded_lines,
         standalone_dashboard,
+        substrate_comparison,
         tilted_boxplot,
     )
+    from flypad.stats import cumulative_timecourse_by_condition
 
     set_theme()
     figdir = Path(out_dir) / "figures"
@@ -211,11 +219,13 @@ def render_figures(
     vector = config.plotting.vector_format
     formats = ("png",) if vector == "none" else ("png", vector)
     dpi = config.plotting.dpi
+    rate = config.hardware.sampling_rate_hz
     kept = _kept(per_fly)
     group_col = "condition_label" if "condition_label" in kept.columns else "condition"
     groups = {
         str(label): grp[metric].to_numpy() for label, grp in kept.groupby(group_col, dropna=False)
     }
+    palette = condition_palette(groups.keys())
     written: list[Path] = []
 
     def save(fig: object, stem: str) -> None:
@@ -225,13 +235,21 @@ def render_figures(
     if "dashboard" in kinds:
         save(standalone_dashboard(kept, metric, central="median"), f"dashboard_{metric}")
     if "boxplot" in kinds:
-        save(tilted_boxplot(groups, ylabel=metric).figure, f"boxplot_{metric}")
+        save(tilted_boxplot(groups, palette=palette, ylabel=metric).figure, f"boxplot_{metric}")
     if "cdf" in kinds:
-        save(cdf_plot(groups, complementary=True, xlabel=metric).figure, f"ccdf_{metric}")
+        save(ccdf_plot(groups, palette=palette, xlabel=metric).figure, f"ccdf_{metric}")
+    if "substrate" in kinds and "substrate_side" in kept.columns:
+        save(substrate_comparison(kept, metric, ylabel=metric).figure, f"substrate_{metric}")
+    if "timecourse" in kinds and events is not None and not events.empty:
+        series = cumulative_timecourse_by_condition(
+            events, config.acquisition.duration_samples, group_col=group_col, sampling_rate_hz=rate
+        )
+        save(shaded_lines(series, palette=palette).figure, "timecourse")
     if "raster" in kinds and events is not None and not events.empty:
         first = events[events["file_index"] == events["file_index"].min()]
         channels = sorted(first["channel"].unique())[:32]
         rows = [first.loc[first["channel"] == c, "onset"].to_numpy() for c in channels]
-        save(raster_plot(rows, row_labels=[f"ch{c}" for c in channels]).figure, "raster")
+        raster = raster_plot(rows, row_labels=[f"ch{c}" for c in channels], sampling_rate_hz=rate)
+        save(raster.figure, "raster")
 
     return written
