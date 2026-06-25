@@ -33,7 +33,7 @@ def fastrms(
         uniform_filter1d(power, size=window, axis=axis, mode="constant", cval=0.0),
         dtype=np.float64,
     )
-    rms = np.sqrt(mean_power)
+    rms = np.sqrt(np.maximum(mean_power, 0.0))  # guard tiny negatives from rounding
     if ampl:
         rms = rms * np.sqrt(2.0)
     return rms

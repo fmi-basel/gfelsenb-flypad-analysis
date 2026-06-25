@@ -50,9 +50,43 @@ def detect(
 def validate(
     data_dir: str,
     against: str = typer.Option(..., "--against", help="MATLAB Events .mat ground truth."),
+    config: str | None = typer.Option(None, "-c", "--config", help="Experiment YAML."),
+    preset: str = typer.Option("matlab_compat", "--preset", help="Mode/preset to validate."),
+    tolerance: int = typer.Option(2, "--tolerance", help="Onset match tolerance (samples)."),
 ) -> None:
-    """Compare Python output against a MATLAB Events .mat (design §9)."""
-    console.print(f"[bold]validate[/] {data_dir} vs {against} — {_TODO}")
+    """Compare Python detections against a MATLAB Events .mat (design §9)."""
+    from rich.table import Table
+
+    from flypad.config import load_config
+    from flypad.validate import validate_dataset
+
+    cfg = load_config(config, preset=preset)
+    result = validate_dataset(data_dir, against, cfg, tolerance=tolerance)
+
+    table = Table(title=f"flypad validate ({preset}) — tol ±{tolerance} samples")
+    for col in ("file", "offset", "py sips", "mat sips", "matched", "precision", "recall"):
+        table.add_column(col, justify="right")
+    for i, fc in enumerate(result.files):
+        table.add_row(
+            str(i),
+            str(fc.offset),
+            str(fc.n_python),
+            str(fc.n_matlab),
+            str(fc.matched),
+            f"{fc.precision:.2f}",
+            f"{fc.recall:.2f}",
+        )
+    table.add_row(
+        "ALL",
+        "-",
+        str(result.n_python),
+        str(result.n_matlab),
+        str(result.matched),
+        f"{result.precision:.2f}",
+        f"{result.recall:.2f}",
+        style="bold",
+    )
+    console.print(table)
 
 
 @app.command()
