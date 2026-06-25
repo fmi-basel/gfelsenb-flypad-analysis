@@ -1,11 +1,28 @@
-# Example flypad experiment config (skeleton — see design §6 for the full schema).
+# Example flypad experiment config (matches the 20240215 sample fixture).
+# Only the experiment-specific bits are set here; everything else comes from the
+# preset selected by `mode` (see flypad/src/flypad/config/presets/). Full schema: design §6.
 mode: matlab_compat
 
 hardware:
-  n_channels: 96          # "48 flies" board (matches the 20240215 sample fixture)
+  configuration: "48 flies"
+  n_channels: 96            # "48 flies" board
   sampling_rate_hz: 100
 
 acquisition:
   duration_samples: 425391  # full length of the 20240215 recordings
+
+metadata:
+  channels_per_board_position: 8
+  substrates: ["100 mM sucrose", "100 mM sucrose"]
+  conditions:
+    - "fully fed"
+    - "24h wet starved"
+    - "44h wet starved"
+    - "24h wet starved + 30 min refed"
+    - "44h wet starved + 30 min refed"
+
+output:
+  dir: ./results
+  formats: [parquet, csv]
 
 pipeline_order: []          # populated as detection stages land (M2-M3)

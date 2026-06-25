@@ -1,2 +1,37 @@
+# corrected preset — same skeleton as v2.2 with the documented bug-fixes (design §8).
 mode: corrected
-# Corrected-mode defaults land in M1-M3 (design §6/§8).
+
+quality_control:
+  unconnected_zero_fraction: 0.5
+  spill_saturation_value: 4095
+  remove_spill_quality: true
+  spill_quality_threshold: 0.5
+
+preprocessing:
+  median_kernel: 6           # configurable; vectorised even-window median
+  baseline_span: 50
+  edge_handling: reflect     # keep the full frame, reflect at edges
+
+activity_bouts:
+  rms_window: 50
+  rms_threshold: 10
+
+sip_detection:
+  threshold:
+    method: adaptive_mad     # robust windowed MAD threshold
+    mad_scale: 5.926         # 4 / 0.675
+    window: 300
+  pairing: greedy            # greedy, with a real amplitude gate
+  peak_min_distance: 7
+  equality_factor: 0.5
+  min_duration_samples: 4
+  max_duration_samples: 100  # 1.0 s (NOT the old port's 3 s)
+
+feeding_bursts:
+  ifi_criterion: mode_x2
+  min_sips: 3
+
+non_eaters:
+  remove_substrate: false
+  remove_global: true
+  threshold_bouts: 2

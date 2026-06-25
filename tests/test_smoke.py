@@ -23,7 +23,7 @@ def test_cli_help_runs() -> None:
 def test_config_defaults() -> None:
     cfg = Config()
     assert cfg.mode is Mode.corrected
-    assert cfg.hardware.n_channels == 96
+    assert cfg.hardware.n_channels == 64
     assert cfg.acquisition.duration_samples == 360_000
 
 

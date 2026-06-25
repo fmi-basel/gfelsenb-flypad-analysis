@@ -1,2 +1,36 @@
+# matlab_compat preset — reproduces AnalyseFlypadData v2.2 (design §8 parity matrix).
 mode: matlab_compat
-# Full v2.2-faithful parameters land in M1-M3 (design §6/§8).
+
+quality_control:
+  unconnected_zero_fraction: 0.5
+  spill_saturation_value: 4095
+  remove_spill_quality: true
+  spill_quality_threshold: 0.5
+
+preprocessing:
+  median_kernel: 6           # MATLAB medfilt1(x, 6)
+  baseline_span: 50
+  edge_handling: crop        # shorten the trace, as MATLAB does
+
+activity_bouts:
+  rms_window: 50
+  rms_threshold: 10
+
+sip_detection:
+  threshold:
+    method: ibis_noise       # max/min(diff(IBIS)) per channel
+    window: 300
+  pairing: greedy            # MATLAB while-loop forward level-crossing
+  peak_min_distance: 7       # MinWindow + 3
+  equality_factor: 0.5
+  min_duration_samples: 4    # 0.04 s @ 100 Hz
+  max_duration_samples: 100  # 1.0 s @ 100 Hz
+
+feeding_bursts:
+  ifi_criterion: mode_x2
+  min_sips: 3
+
+non_eaters:
+  remove_substrate: false
+  remove_global: true
+  threshold_bouts: 2
