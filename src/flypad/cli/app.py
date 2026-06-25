@@ -32,18 +32,59 @@ def run(
     data_dir: str,
     config: str | None = typer.Option(None, "-c", "--config", help="Experiment YAML."),
     mode: str | None = typer.Option(None, "--mode", help="matlab_compat | corrected."),
+    out: str | None = typer.Option(None, "-o", "--out", help="Output directory."),
+    set_: list[str] = typer.Option([], "--set", help="Dotted overrides key=value."),
+    plots: bool = typer.Option(True, "--plots/--no-plots", help="Render figures."),
 ) -> None:
     """Run the full pipeline on a folder of recordings."""
-    console.print(f"[bold]run[/] {data_dir} (config={config}, mode={mode}) — {_TODO}")
+    from flypad.config import load_config
+    from flypad.pipeline import build_tables, detect_experiment, render_figures, write_tables
+
+    cfg = load_config(config, preset=mode, overrides=set_)
+    out_dir = out or cfg.output.dir
+
+    detection = detect_experiment(data_dir, cfg, progress=console.log)
+    console.log("building tables")
+    tables = build_tables(detection, cfg)
+    written = write_tables(tables, out_dir, formats=cfg.output.formats)
+    if plots and cfg.plotting.enabled:
+        written += render_figures(
+            tables["per_fly"], tables["events"], out_dir, cfg, progress=console.log
+        )
+
+    kept = len(tables["per_fly"]) - int(tables["per_fly"]["non_eater"].sum())
+    console.print(
+        f"[green]done[/] {len(detection.files)} files · "
+        f"{len(tables['events']):,} sips · {kept} flies kept · "
+        f"{len(written)} files written to [bold]{out_dir}[/]"
+    )
 
 
 @app.command()
 def detect(
     data_dir: str,
     config: str | None = typer.Option(None, "-c", "--config", help="Experiment YAML."),
+    mode: str | None = typer.Option(None, "--mode", help="matlab_compat | corrected."),
+    out: str | None = typer.Option(None, "-o", "--out", help="Output directory."),
+    set_: list[str] = typer.Option([], "--set", help="Dotted overrides key=value."),
 ) -> None:
-    """Detection only: sips + activity bouts."""
-    console.print(f"[bold]detect[/] {data_dir} (config={config}) — {_TODO}")
+    """Detection only: sips + activity bouts (writes events + per_fly tables)."""
+    from flypad.config import load_config
+    from flypad.pipeline import build_tables, detect_experiment, write_tables
+
+    cfg = load_config(config, preset=mode, overrides=set_)
+    out_dir = out or cfg.output.dir
+    detection = detect_experiment(data_dir, cfg, progress=console.log)
+    tables = build_tables(detection, cfg)
+    written = write_tables(
+        {"events": tables["events"], "per_fly": tables["per_fly"]},
+        out_dir,
+        formats=cfg.output.formats,
+    )
+    console.print(
+        f"[green]done[/] {len(detection.files)} files · "
+        f"{len(tables['events']):,} sips · {len(written)} files written to [bold]{out_dir}[/]"
+    )
 
 
 @app.command()
@@ -90,15 +131,63 @@ def validate(
 
 
 @app.command()
-def stats(results_dir: str) -> None:
-    """(Re)compute summary statistics from saved events."""
-    console.print(f"[bold]stats[/] {results_dir} — {_TODO}")
+def stats(
+    results_dir: str,
+    metric: str = typer.Option("n_sips", "--metric", help="Metric to summarise per condition."),
+) -> None:
+    """(Re)compute per-condition summaries from a saved per_fly table."""
+    from rich.table import Table
+
+    from flypad.pipeline import read_table, write_tables
+    from flypad.stats import apply_qc_removal, per_condition_summary
+
+    per_fly = read_table(results_dir, "per_fly")
+    kept = apply_qc_removal(per_fly) if "non_eater" in per_fly.columns else per_fly
+    per_condition = per_condition_summary(kept)
+    write_tables({"per_condition": per_condition}, results_dir, formats=("csv",))
+
+    rows = per_condition[per_condition["metric"] == metric]
+    group_col = "condition_label" if "condition_label" in rows.columns else "condition"
+    table = Table(title=f"per-condition {metric}")
+    for col in (group_col, "n", "mean", "median", "ci_low", "ci_high"):
+        table.add_column(col, justify="right")
+    for _, r in rows.iterrows():
+        table.add_row(
+            str(r[group_col]),
+            str(int(r["n"])),
+            f"{r['mean']:.1f}",
+            f"{r['median']:.1f}",
+            f"{r['ci_low']:.1f}",
+            f"{r['ci_high']:.1f}",
+        )
+    console.print(table)
 
 
 @app.command()
-def plot(results_dir: str) -> None:
-    """Render figures from saved results."""
-    console.print(f"[bold]plot[/] {results_dir} — {_TODO}")
+def plot(
+    results_dir: str,
+    kind: str = typer.Option(
+        "dashboard,boxplot,cdf,raster", "--kind", help="Comma-separated figure kinds."
+    ),
+    metric: str = typer.Option("n_sips", "--metric", help="Metric to plot."),
+    config: str | None = typer.Option(None, "-c", "--config", help="Experiment YAML (styling)."),
+    mode: str | None = typer.Option(None, "--mode", help="matlab_compat | corrected."),
+) -> None:
+    """Render figures from saved results into ``RESULTS_DIR/figures``."""
+    from flypad.config import load_config
+    from flypad.pipeline import read_table, render_figures
+
+    cfg = load_config(config, preset=mode)
+    per_fly = read_table(results_dir, "per_fly")
+    try:
+        events = read_table(results_dir, "events")
+    except FileNotFoundError:
+        events = None
+    kinds = [k.strip() for k in kind.split(",") if k.strip()]
+    written = render_figures(
+        per_fly, events, results_dir, cfg, kinds=kinds, metric=metric, progress=console.log
+    )
+    console.print(f"[green]done[/] {len(written)} figure files in [bold]{results_dir}/figures[/]")
 
 
 @app.command()
