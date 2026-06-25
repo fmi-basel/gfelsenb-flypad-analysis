@@ -1,12 +1,22 @@
 [project]
 name = "flypad"
-version = "0.0.0"
+version = "0.1.0"
 description = "Python analysis suite for flyPAD (fly Proboscis and Activity Detector) capacitance recordings."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "GPL-3.0-or-later" }
 authors = [{ name = "Dennis Goldschmidt", email = "goldschmidt.de@gmail.com" }]
 keywords = ["flypad", "drosophila", "feeding", "behaviour", "electrophysiology"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Typing :: Typed",
+]
 
 dependencies = [
     "numpy>=1.26",
@@ -26,6 +36,17 @@ dependencies = [
 
 [project.scripts]
 flypad = "flypad.cli.app:main"
+
+# Install extras for end users: `pip install flypad[gui]` / `flypad[docs]`.
+[project.optional-dependencies]
+gui = ["pyside6>=6.7", "qtpy>=2.4"]
+docs = ["mkdocs-material>=9.5", "mkdocstrings[python]>=0.25"]
+
+# TODO: point these at the real repository before publishing to PyPI.
+[project.urls]
+Homepage = "https://github.com/dgoldschmidt/flypad"
+Repository = "https://github.com/dgoldschmidt/flypad"
+Issues = "https://github.com/dgoldschmidt/flypad/issues"
 
 [dependency-groups]
 dev = [

@@ -6,6 +6,9 @@ __pycache__/
 build/
 dist/
 
+# MkDocs build output
+site/
+
 # uv / virtualenv
 .venv/
 # (uv.lock IS tracked — do not ignore it)

@@ -8,12 +8,18 @@ they contain no science themselves.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
+import yaml
 
+from flypad import __version__
 from flypad.config.models import Config
 from flypad.datamodel import load_recording
 from flypad.detect.results import ChannelBouts, ChannelSips
@@ -169,6 +175,47 @@ def write_tables(
                 df.to_csv(path, index=False)
             written.append(path)
     return written
+
+
+def config_hash(config: Config) -> str:
+    """A stable SHA-256 over the resolved config (provenance / reproducibility)."""
+    payload = json.dumps(config.model_dump(mode="json"), sort_keys=True).encode()
+    return hashlib.sha256(payload).hexdigest()
+
+
+def write_provenance(
+    out_dir: str | Path,
+    config: Config,
+    *,
+    files: Sequence[Path],
+    command: str = "run",
+    extra: dict[str, Any] | None = None,
+    timestamp: str | None = None,
+) -> list[Path]:
+    """Write ``run_info.json`` (version, config hash, inputs) + ``config.used.yaml``.
+
+    Together these make any results directory self-describing and reproducible.
+    """
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    info: dict[str, Any] = {
+        "flypad_version": __version__,
+        "command": command,
+        "timestamp": timestamp or datetime.now(UTC).isoformat(),
+        "mode": config.mode.value,
+        "config_hash": config_hash(config),
+        "n_files": len(files),
+        "files": [Path(f).name for f in files],
+    }
+    if extra:
+        info.update(extra)
+    run_info = out / "run_info.json"
+    used = out / "config.used.yaml"
+    run_info.write_text(json.dumps(info, indent=2) + "\n", encoding="utf-8")
+    used.write_text(
+        yaml.safe_dump(config.model_dump(mode="json"), sort_keys=False), encoding="utf-8"
+    )
+    return [run_info, used]
 
 
 def read_table(results_dir: str | Path, name: str) -> pd.DataFrame:

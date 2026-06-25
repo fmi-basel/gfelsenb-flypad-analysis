@@ -1,0 +1,41 @@
+site_name: flypad
+site_description: Python analysis suite for flyPAD capacitance recordings
+repo_url: https://github.com/dgoldschmidt/flypad
+copyright: GPL-3.0-or-later
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - content.code.copy
+    - toc.integrate
+  palette:
+    - scheme: default
+      primary: blue grey
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [src]
+          options:
+            docstring_style: numpy
+            show_source: true
+            show_root_heading: true
+            members_order: source
+            separate_signature: true
+
+nav:
+  - Home: index.md
+  - Tutorial: tutorial.md
+  - CLI: cli.md
+  - Configuration: configuration.md
+  - API reference: api.md
+
+markdown_extensions:
+  - admonition
+  - toc:
+      permalink: true
+  - pymdownx.highlight
+  - pymdownx.superfences

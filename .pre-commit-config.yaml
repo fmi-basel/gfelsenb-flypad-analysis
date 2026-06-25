@@ -1,0 +1,18 @@
+# Run with: uv run pre-commit install   (then hooks run on every commit)
+#           uv run pre-commit run --all-files
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.9
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy (src)
+        entry: uv run mypy src
+        language: system
+        types: [python]
+        pass_filenames: false

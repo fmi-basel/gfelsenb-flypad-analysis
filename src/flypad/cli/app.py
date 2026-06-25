@@ -36,7 +36,13 @@ def run(
 ) -> None:
     """Run the full pipeline on a folder of recordings."""
     from flypad.config import load_config
-    from flypad.pipeline import build_tables, detect_experiment, render_figures, write_tables
+    from flypad.pipeline import (
+        build_tables,
+        detect_experiment,
+        render_figures,
+        write_provenance,
+        write_tables,
+    )
 
     cfg = load_config(config, preset=mode, overrides=set_)
     out_dir = out or cfg.output.dir
@@ -51,6 +57,13 @@ def run(
         )
 
     kept = len(tables["per_fly"]) - int(tables["per_fly"]["non_eater"].sum())
+    written += write_provenance(
+        out_dir,
+        cfg,
+        files=detection.files,
+        command="run",
+        extra={"n_sips": len(tables["events"]), "n_flies_kept": kept},
+    )
     console.print(
         f"[green]done[/] {len(detection.files)} files · "
         f"{len(tables['events']):,} sips · {kept} flies kept · "
@@ -68,7 +81,7 @@ def detect(
 ) -> None:
     """Detection only: sips + activity bouts (writes events + per_fly tables)."""
     from flypad.config import load_config
-    from flypad.pipeline import build_tables, detect_experiment, write_tables
+    from flypad.pipeline import build_tables, detect_experiment, write_provenance, write_tables
 
     cfg = load_config(config, preset=mode, overrides=set_)
     out_dir = out or cfg.output.dir
@@ -78,6 +91,13 @@ def detect(
         {"events": tables["events"], "per_fly": tables["per_fly"]},
         out_dir,
         formats=cfg.output.formats,
+    )
+    written += write_provenance(
+        out_dir,
+        cfg,
+        files=detection.files,
+        command="detect",
+        extra={"n_sips": len(tables["events"])},
     )
     console.print(
         f"[green]done[/] {len(detection.files)} files · "

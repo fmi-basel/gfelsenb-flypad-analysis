@@ -8,9 +8,10 @@ activity bouts → feeding bursts & QC → statistics & figures).
 - **Fully YAML-configurable** (Pydantic-validated); no hard-coded parameters.
 - **Library + CLI + GUI** over one Qt-free core.
 
-> Status: **M0–M8 done** — the full scientific pipeline (detect → post-process → stats → figures) runs
-> end-to-end from the CLI and the PySide6 GUI. Packaged release (M9) remains. See
-> `flypad_new_software_design.html` for the architecture, locked decisions, and milestone roadmap.
+> Status: **v0.1.0 — M0–M9 complete.** The full scientific pipeline (detect → post-process →
+> stats → figures) runs end-to-end from the CLI and the PySide6 GUI, with docs, packaging, and a
+> tag-triggered release workflow in place. See `CHANGELOG.md` for the release notes and
+> `flypad_new_software_design.html` for the architecture and decisions log.
 
 ## Quickstart (uv)
 
@@ -23,6 +24,8 @@ uv run mypy src         # types
 ```
 
 Optional groups: `uv sync --group gui` (PySide6), `uv sync --group docs` (MkDocs).
+Published extras for end users: `pip install flypad[gui]`. Build the docs site with
+`uv run --group docs mkdocs build` (or `mkdocs serve`).
 
 ## Run the pipeline
 

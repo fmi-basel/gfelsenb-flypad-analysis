@@ -1,0 +1,55 @@
+name: release
+
+# Fires only when a version tag is pushed, e.g. `git tag v0.1.0 && git push --tags`.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+      - name: Build sdist + wheel
+        run: uv build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  smoke:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install the built wheel in a clean env
+        run: pip install dist/*.whl
+      - name: Smoke-test the console script
+        run: |
+          flypad version
+          flypad --help
+
+  publish:
+    needs: smoke
+    runs-on: ubuntu-latest
+    # Configure a PyPI "trusted publisher" for this repo + the `pypi` environment,
+    # then this step publishes automatically on tag. Until then it simply no-ops on PRs.
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1

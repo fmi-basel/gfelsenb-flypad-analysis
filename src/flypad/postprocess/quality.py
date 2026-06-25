@@ -62,7 +62,7 @@ def flag_non_eaters(
     remove_substrate: bool = False,
     threshold: int = 2,
 ) -> BoolArray:
-    """Flag non-eater channels from per-channel event counts.
+    """Flag non-eater channels from per-channel event counts (``True`` = remove).
 
     A channel/fly is a non-eater when its count is ``<= threshold`` — MATLAB v2.2
     drops flies with "≤2 activity bouts" at the default ``NonEaterThreshold = 2``, so
@@ -77,8 +77,6 @@ def flag_non_eaters(
         arena's combined count is ``<= threshold`` — i.e. the fly barely did anything
         on either food source.
     threshold : a channel/arena with at most this many events is a non-eater.
-
-    Returns a boolean mask (``True`` = remove).
     """
     n = np.asarray(counts, dtype=np.int64)
     remove = np.zeros(n.shape, dtype=bool)
