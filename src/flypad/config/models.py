@@ -98,6 +98,7 @@ class SipThreshold(BaseModel):
     fixed_height: float = 50.0
     mad_scale: float = 5.926  # 4 / 0.675
     window: int = Field(300, gt=0)
+    offset: float = 50.0  # minimum |threshold| floor for adaptive_mad
 
 
 class SipDetection(BaseModel):
