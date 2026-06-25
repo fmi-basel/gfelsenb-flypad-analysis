@@ -72,6 +72,8 @@ def test_run_writes_tables_and_figures(tmp_path: Path) -> None:
         assert (out / f"{name}.csv").exists()
     assert (out / "figures").is_dir()
     assert list((out / "figures").glob("*.png"))
+    assert list((out / "figures").glob("*.pdf"))  # PDF is the default vector format
+    assert not list((out / "figures").glob("*.eps"))
     # per_fly has one row per channel
     assert len(pd.read_csv(out / "per_fly.csv")) == 8
 

@@ -1,4 +1,4 @@
-"""Figure export to PNG / EPS / SVG (design §10, M6)."""
+"""Figure export to PNG / PDF / SVG / EPS (design §10, M6)."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-DEFAULT_FORMATS: tuple[str, ...] = ("png", "eps", "svg")
+DEFAULT_FORMATS: tuple[str, ...] = ("png", "pdf")
 
 
 def save_figure(
@@ -22,7 +22,7 @@ def save_figure(
     """Save ``fig`` to one or more formats.
 
     If ``path`` already has a suffix, that single file is written. Otherwise ``path``
-    is treated as a stem and one file per entry in ``formats`` (default PNG/EPS/SVG) is
+    is treated as a stem and one file per entry in ``formats`` (default PNG + PDF) is
     written. Returns the paths written.
     """
     out = Path(path)

@@ -178,7 +178,9 @@ class Plotting(BaseModel):
 
     model_config = _Strict
     enabled: bool = True
-    save_eps: bool = True
+    # Vector format saved alongside the PNG ("none" = PNG only). PDF is the default:
+    # like EPS it is vector, but it preserves transparency.
+    vector_format: Literal["pdf", "eps", "svg", "none"] = "pdf"
     dpi: int = Field(300, gt=0)
 
 

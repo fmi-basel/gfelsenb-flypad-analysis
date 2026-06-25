@@ -208,7 +208,8 @@ def render_figures(
     set_theme()
     figdir = Path(out_dir) / "figures"
     figdir.mkdir(parents=True, exist_ok=True)
-    formats = ("png", "eps") if config.plotting.save_eps else ("png",)
+    vector = config.plotting.vector_format
+    formats = ("png",) if vector == "none" else ("png", vector)
     dpi = config.plotting.dpi
     kept = _kept(per_fly)
     group_col = "condition_label" if "condition_label" in kept.columns else "condition"

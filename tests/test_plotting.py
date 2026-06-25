@@ -200,3 +200,17 @@ def test_save_figure_single_suffix(tmp_path: Path) -> None:
     ax.plot([0, 1], [1, 0])
     paths = save_figure(fig, tmp_path / "one.png")
     assert len(paths) == 1 and paths[0].name == "one.png"
+
+
+def test_save_figure_default_formats_are_png_and_pdf(tmp_path: Path) -> None:
+    fig, ax = plt.subplots()
+    ax.plot([0, 1], [0, 1])
+    paths = save_figure(fig, tmp_path / "fig")
+    assert sorted(p.suffix for p in paths) == [".pdf", ".png"]
+    assert all(p.exists() and p.stat().st_size > 0 for p in paths)
+
+
+def test_plotting_config_defaults_to_pdf() -> None:
+    from flypad.config.models import Plotting
+
+    assert Plotting().vector_format == "pdf"
