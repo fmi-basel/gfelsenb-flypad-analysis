@@ -42,11 +42,10 @@ flypad = "flypad.cli.app:main"
 gui = ["pyside6>=6.7", "qtpy>=2.4"]
 docs = ["mkdocs-material>=9.5", "mkdocstrings[python]>=0.25"]
 
-# TODO: point these at the real repository before publishing to PyPI.
 [project.urls]
-Homepage = "https://github.com/dgoldschmidt/flypad"
-Repository = "https://github.com/dgoldschmidt/flypad"
-Issues = "https://github.com/dgoldschmidt/flypad/issues"
+Homepage = "https://github.com/fmi-basel/gfelsenb-flypad-analysis"
+Repository = "https://github.com/fmi-basel/gfelsenb-flypad-analysis"
+Issues = "https://github.com/fmi-basel/gfelsenb-flypad-analysis/issues"
 
 [dependency-groups]
 dev = [

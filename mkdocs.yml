@@ -1,6 +1,6 @@
 site_name: flypad
 site_description: Python analysis suite for flyPAD capacitance recordings
-repo_url: https://github.com/dgoldschmidt/flypad
+repo_url: https://github.com/fmi-basel/gfelsenb-flypad-analysis
 copyright: GPL-3.0-or-later
 
 theme:
