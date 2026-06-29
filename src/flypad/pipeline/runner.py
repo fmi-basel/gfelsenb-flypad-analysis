@@ -26,7 +26,10 @@ from flypad.detect.results import ChannelBouts, ChannelSips
 from flypad.detect.run import detect_recording
 from flypad.io.discovery import find_capacitance_files
 from flypad.postprocess.bursts import ChannelBursts, detect_feeding_bursts
-from flypad.postprocess.metadata import channel_condition_map_for_dir
+from flypad.postprocess.metadata import (
+    channel_condition_map_for_dir,
+    channel_map_from_filenames,
+)
 from flypad.stats.summaries import (
     apply_qc_removal,
     build_event_table,
@@ -95,7 +98,18 @@ def _resolve_channel_map(
             channels_per_board_position=config.metadata.channels_per_board_position,
         )
     except FileNotFoundError:
-        return _default_channel_map(files, config)
+        pass
+    # No exp_*.txt sidecars: fall back to the filename condition spans (the MATLAB
+    # mechanism), then to a single "all" condition if the filenames carry none.
+    from flypad.io.discovery import parse_filename
+
+    if any(parse_filename(f.name).condition_spans for f in files):
+        return channel_map_from_filenames(
+            files,
+            n_channels=config.hardware.n_channels,
+            channels_per_board_position=config.metadata.channels_per_board_position,
+        )
+    return _default_channel_map(files, config)
 
 
 def detect_experiment(

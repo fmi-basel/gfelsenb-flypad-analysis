@@ -273,3 +273,22 @@ def test_spill_unconnected_match_matlab_ground_truth() -> None:
             mat_unconn = np.array([deref(unconn_refs[c, file_index]) for c in range(96)])
             assert np.nanmax(np.abs(spill - mat_spill)) < 1e-3
             assert np.nanmax(np.abs(zeros - mat_unconn)) < 1e-3
+
+
+def test_channel_map_from_filenames_multi_condition() -> None:
+    from flypad.postprocess import channel_map_from_filenames
+
+    files = ["CapacitanceData_C01_01_48_C02_49_96_2024-01-01T00_00_00+00_00"]
+    cmap = channel_map_from_filenames(files, n_channels=96)
+    assert len(cmap) == 96
+    assert set(cmap.loc[cmap.channel < 48, "condition"]) == {1}  # ch 0-47 -> cond 1
+    assert set(cmap.loc[cmap.channel >= 48, "condition"]) == {2}  # ch 48-95 -> cond 2
+
+
+def test_channel_map_from_filenames_unassigned() -> None:
+    from flypad.postprocess import channel_map_from_filenames
+
+    files = ["CapacitanceData_C01_01_04_2024-01-01T00_00_00+00_00"]
+    cmap = channel_map_from_filenames(files, n_channels=8)
+    assert set(cmap.loc[cmap.channel < 4, "condition"]) == {1}
+    assert set(cmap.loc[cmap.channel >= 4, "condition_label"]) == {"unassigned"}

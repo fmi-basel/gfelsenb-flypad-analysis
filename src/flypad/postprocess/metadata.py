@@ -32,7 +32,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from flypad.io.discovery import CAP_PREFIX, find_capacitance_files
+from flypad.io.discovery import CAP_PREFIX, find_capacitance_files, parse_filename
 
 _EXP_INDEX_RE = re.compile(r"exp_(\d+)", re.IGNORECASE)
 _MAT_LABEL_RE = re.compile(r"Events\.(\w+)\{(\d+)\}\s*=\s*'([^']*)'")
@@ -220,6 +220,50 @@ def build_channel_condition_map(
                 }
             )
 
+    frame = pd.DataFrame(rows, columns=list(MAP_COLUMNS))
+    int_cols = ["file_index", "board_position", "channel", "condition", "substrate"]
+    frame[int_cols] = frame[int_cols].astype("int64")
+    return frame
+
+
+def channel_map_from_filenames(
+    files: Sequence[str | Path],
+    *,
+    n_channels: int = 96,
+    channels_per_board_position: int = 8,
+) -> pd.DataFrame:
+    """Build a channel->condition map from the ``C<cond>_<lo>_<hi>`` filename tokens.
+
+    This mirrors the MATLAB script, which reads conditions from the recording's
+    filename (e.g. ``...C01_01_96...`` = condition 1 over channels 1-96; multiple
+    tokens map disjoint channel ranges to different conditions). The raw binary itself
+    carries no metadata. Channels outside every span are labelled ``unassigned``.
+    """
+    rows: list[dict[str, object]] = []
+    for file_index, file in enumerate(files):
+        name = Path(file).name
+        spans = parse_filename(name).condition_spans
+        for channel in range(n_channels):
+            one_based = channel + 1
+            match = next((s for s in spans if s.channel_start <= one_based <= s.channel_end), None)
+            condition = match.condition if match else 0
+            is_left = channel % 2 == 0
+            rows.append(
+                {
+                    "file_index": file_index,
+                    "file_name": name,
+                    "exp_file": "",
+                    "board_position": channel // channels_per_board_position + 1,
+                    "channel": channel,
+                    "condition": condition,
+                    "condition_label": f"condition {condition}" if match else "unassigned",
+                    "condition_short": str(condition) if match else "unassigned",
+                    "sex": "",
+                    "substrate": 1 if is_left else 2,
+                    "substrate_side": "left" if is_left else "right",
+                    "substrate_label": "",
+                }
+            )
     frame = pd.DataFrame(rows, columns=list(MAP_COLUMNS))
     int_cols = ["file_index", "board_position", "channel", "condition", "substrate"]
     frame[int_cols] = frame[int_cols].astype("int64")

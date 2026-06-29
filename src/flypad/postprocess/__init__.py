@@ -15,6 +15,7 @@ from flypad.postprocess.metadata import (
     LogLabels,
     build_channel_condition_map,
     channel_condition_map_for_dir,
+    channel_map_from_filenames,
     parse_exp_file,
     parse_log_file,
 )
@@ -44,6 +45,7 @@ __all__ = [
     "assess_quality",
     "build_channel_condition_map",
     "channel_condition_map_for_dir",
+    "channel_map_from_filenames",
     "channel_transitions",
     "classify_in_burst",
     "detect_feeding_bursts",
