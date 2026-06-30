@@ -20,7 +20,8 @@ from flypad.plotting.theme import GRAY, INK
 def _new_ax(ax: Any | None, n_rows: int) -> Any:
     if ax is not None:
         return ax
-    return plt.subplots(figsize=(9.0, max(2.0, 0.18 * n_rows + 1.0)))[1]
+    height = max(2.0, min(0.16 * n_rows + 1.0, 14.0))  # cap for full-plate (96-ch) rasters
+    return plt.subplots(figsize=(9.0, height))[1]
 
 
 def raster_plot(

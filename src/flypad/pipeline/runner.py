@@ -307,21 +307,20 @@ def render_figures(
         )
         save(shaded_lines(series, palette=palette).figure, "timecourse")
     if "raster" in kinds and events is not None and not events.empty:
-        first = events[events["file_index"] == events["file_index"].min()]
-        channels = sorted(first["channel"].unique())[:32]
-        rows = [first.loc[first["channel"] == c, "onset"].to_numpy() for c in channels]
-        chan_cond = first.drop_duplicates("channel").set_index("channel")
+        # Full plate of the first file: every channel (silent or QC-removed too).
+        fi0 = int(events["file_index"].min())
+        first = events[events["file_index"] == fi0]
+        channels = list(range(config.hardware.n_channels))
+        onsets_by_ch = {int(c): g["onset"].to_numpy() for c, g in first.groupby("channel")}
+        rows = [onsets_by_ch.get(c, []) for c in channels]
+        pf0 = per_fly[per_fly["file_index"] == fi0].drop_duplicates("channel").set_index("channel")
         row_conditions = (
-            [str(chan_cond.loc[c, group_col]) for c in channels]
-            if group_col in chan_cond.columns
+            [str(pf0.loc[c, group_col]) if c in pf0.index else "" for c in channels]
+            if group_col in pf0.columns
             else None
         )
         raster = raster_plot(
-            rows,
-            row_labels=[f"ch{c}" for c in channels],
-            row_conditions=row_conditions,
-            palette=palette,
-            sampling_rate_hz=rate,
+            rows, row_conditions=row_conditions, palette=palette, sampling_rate_hz=rate
         )
         save(raster.figure, "raster")
 
