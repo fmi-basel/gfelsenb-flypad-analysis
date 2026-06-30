@@ -310,7 +310,19 @@ def render_figures(
         first = events[events["file_index"] == events["file_index"].min()]
         channels = sorted(first["channel"].unique())[:32]
         rows = [first.loc[first["channel"] == c, "onset"].to_numpy() for c in channels]
-        raster = raster_plot(rows, row_labels=[f"ch{c}" for c in channels], sampling_rate_hz=rate)
+        chan_cond = first.drop_duplicates("channel").set_index("channel")
+        row_conditions = (
+            [str(chan_cond.loc[c, group_col]) for c in channels]
+            if group_col in chan_cond.columns
+            else None
+        )
+        raster = raster_plot(
+            rows,
+            row_labels=[f"ch{c}" for c in channels],
+            row_conditions=row_conditions,
+            palette=palette,
+            sampling_rate_hz=rate,
+        )
         save(raster.figure, "raster")
 
     return written

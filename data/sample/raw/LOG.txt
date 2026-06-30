@@ -1,0 +1,5 @@
+Events.ConditionLabel{1}= 'fly';
+Events.SubstrateLabel{1}= '100 mM sucrose';
+Events.SubstrateLabel{2}= '100 mM sucrose';
+
+ 

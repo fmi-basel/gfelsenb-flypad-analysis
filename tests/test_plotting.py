@@ -270,3 +270,11 @@ def test_shaded_lines_band_per_series() -> None:
     ax = shaded_lines(series, palette=condition_palette(["a", "b"]))
     assert len(ax.lines) == 2
     assert len(ax.collections) == 2  # one shaded band per series
+
+
+def test_raster_colored_by_condition() -> None:
+    palette = condition_palette(["fed", "starved"])
+    rows = [np.array([10, 50]), np.array([20]), np.array([30, 70])]
+    ax = raster_plot(rows, row_conditions=["fed", "starved", "fed"], palette=palette)
+    assert ax.get_legend() is not None  # one entry per condition present
+    assert len(ax.get_legend().get_texts()) == 2
