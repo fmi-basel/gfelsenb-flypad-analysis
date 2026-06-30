@@ -26,4 +26,4 @@ htmlcov/
 
 # Large raw flyPAD recordings — kept locally as fixtures, NOT committed.
 # (The small ground-truth .mat, the .csv map, and the .txt sidecars ARE tracked.)
-data/**/CapacitanceData_*
+# data/**/CapacitanceData_*
