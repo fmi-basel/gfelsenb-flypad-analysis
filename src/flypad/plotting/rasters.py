@@ -75,5 +75,13 @@ def raster_plot(
         present = [c for c in palette if c in set(map(str, row_conditions))]
         handles = [Line2D([0], [0], color=palette[c], lw=3, label=c) for c in present]
         if handles:
-            ax.legend(handles=handles, frameon=False, fontsize=8, loc="upper right")
+            # Outside the axes (top-right) so it never overlaps the raster rows;
+            # the suite's tight savefig bbox keeps it in the exported figure.
+            ax.legend(
+                handles=handles,
+                frameon=False,
+                fontsize=8,
+                loc="upper left",
+                bbox_to_anchor=(1.01, 1.0),
+            )
     return ax
