@@ -56,7 +56,9 @@ def run(
             tables["per_fly"], tables["events"], out_dir, cfg, progress=console.log
         )
 
-    kept = len(tables["per_fly"]) - int(tables["per_fly"]["non_eater"].sum())
+    from flypad.stats import apply_qc_removal
+
+    kept = len(apply_qc_removal(tables["per_fly"]))
     written += write_provenance(
         out_dir,
         cfg,
@@ -160,7 +162,7 @@ def stats(
     from flypad.stats import apply_qc_removal, per_condition_summary
 
     per_fly = read_table(results_dir, "per_fly")
-    kept = apply_qc_removal(per_fly) if "non_eater" in per_fly.columns else per_fly
+    kept = apply_qc_removal(per_fly)
     per_condition = per_condition_summary(kept)
     write_tables({"per_condition": per_condition}, results_dir, formats=("csv",))
 

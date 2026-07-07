@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from flypad.config.models import NonEaters
+from flypad.config.models import NonEaters, QualityControl
 from flypad.detect.results import ChannelBouts, ChannelSips
 from flypad.postprocess.bursts import group_feeding_bursts
 from flypad.stats import (
@@ -23,6 +23,7 @@ from flypad.stats import (
     fit_poly_with_rsquare,
     icdf,
     icdf_linear,
+    mark_bad_channels,
     mark_non_eaters,
     pairwise_comparisons,
     per_condition_summary,
@@ -257,6 +258,42 @@ def test_mark_and_remove_non_eaters_global() -> None:
     assert not marked.loc[marked.channel == 0, "non_eater"].iloc[0]
     kept = apply_qc_removal(marked)
     assert sorted(kept["channel"]) == [0, 1]
+
+
+def test_per_fly_summary_attaches_qc_fractions() -> None:
+    sips, bouts, bursts, cmap = _toy_experiment()
+    spill = [np.array([0.0, 0.9, 0.1, 0.0])]  # channel 1 saturated
+    zeros = [np.array([0.0, 0.0, 0.0, 0.8])]  # channel 3 unconnected
+    pf = per_fly_summary(sips, bouts, bursts, cmap, RATE, spill_by_file=spill, zero_by_file=zeros)
+    assert {"spill_fraction", "zero_fraction"} <= set(pf.columns)
+    assert pf.loc[pf.channel == 1, "spill_fraction"].iloc[0] == pytest.approx(0.9)
+    assert pf.loc[pf.channel == 3, "zero_fraction"].iloc[0] == pytest.approx(0.8)
+
+
+def test_mark_bad_channels_flags_and_removes() -> None:
+    sips, bouts, bursts, cmap = _toy_experiment()
+    spill = [np.array([0.0, 0.9, 0.1, 0.0])]  # channel 1 > 0.5 -> spill
+    zeros = [np.array([0.0, 0.0, 0.0, 0.8])]  # channel 3 > 0.5 -> unconnected
+    pf = per_fly_summary(sips, bouts, bursts, cmap, RATE, spill_by_file=spill, zero_by_file=zeros)
+    marked = mark_bad_channels(pf, QualityControl())
+    assert marked.loc[marked.channel == 1, "spill"].iloc[0]
+    assert marked.loc[marked.channel == 3, "unconnected"].iloc[0]
+    assert not marked.loc[marked.channel == 0, "spill"].iloc[0]
+    # apply_qc_removal now drops spill/unconnected as well as non-eaters
+    kept = apply_qc_removal(marked)
+    assert sorted(kept["channel"]) == [0, 2]
+
+
+def test_mark_bad_channels_respects_toggles() -> None:
+    sips, bouts, bursts, cmap = _toy_experiment()
+    spill = [np.array([0.9, 0.9, 0.9, 0.9])]
+    zeros = [np.array([0.9, 0.9, 0.9, 0.9])]
+    pf = per_fly_summary(sips, bouts, bursts, cmap, RATE, spill_by_file=spill, zero_by_file=zeros)
+    qc = QualityControl(remove_spill_quality=False, remove_unconnected=False)
+    marked = mark_bad_channels(pf, qc)
+    assert "spill" not in marked.columns  # toggle off -> no column, nothing removed
+    assert "unconnected" not in marked.columns
+    assert len(apply_qc_removal(marked)) == 4
 
 
 def test_per_condition_summary_aggregates() -> None:

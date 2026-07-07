@@ -2,9 +2,13 @@
 mode: matlab_compat
 
 quality_control:
+  # v2.2 computes SpillQuality / Unconnected but does NOT auto-remove channels from
+  # them (the GT .mat leaves the removal lists empty — it was a manual, experiment-level
+  # step). Keep auto-removal OFF here for exact parity; the fractions are still reported.
+  remove_unconnected: false
   unconnected_zero_fraction: 0.5
+  remove_spill_quality: false
   spill_saturation_value: 4095
-  remove_spill_quality: true
   spill_quality_threshold: 0.5
 
 preprocessing:

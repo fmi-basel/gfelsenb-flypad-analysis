@@ -22,9 +22,14 @@ import pandas as pd
 from scipy import stats as scipy_stats
 
 from flypad.config.models import NonEaters as NonEatersConfig
+from flypad.config.models import QualityControl as QualityControlConfig
 from flypad.detect.results import ChannelBouts, ChannelSips
 from flypad.postprocess.bursts import ChannelBursts
-from flypad.postprocess.quality import flag_non_eaters
+from flypad.postprocess.quality import (
+    flag_non_eaters,
+    flag_spill_channels,
+    flag_unconnected_channels,
+)
 from flypad.postprocess.transitions import classify_in_burst
 
 FloatArray = npt.NDArray[np.float64]
@@ -108,15 +113,32 @@ def per_fly_summary(
     bursts_by_file: list[list[ChannelBursts]],
     channel_map: pd.DataFrame,
     sampling_rate_hz: int,
+    *,
+    spill_by_file: list[FloatArray] | None = None,
+    zero_by_file: list[FloatArray] | None = None,
 ) -> pd.DataFrame:
-    """One row per recorded channel: metadata + per-fly metrics."""
+    """One row per recorded channel: metadata + per-fly metrics.
+
+    ``spill_by_file`` / ``zero_by_file`` (one per-channel fraction array per file, from
+    :func:`flypad.postprocess.quality.saturation_fraction` / ``zero_fraction``) add the
+    ``spill_fraction`` / ``zero_fraction`` QC columns when supplied.
+    """
     rows: list[dict[str, object]] = []
     for meta, fi, ch in _iter_channel_rows(channel_map):
         metrics = channel_metrics(
             sips_by_file[fi][ch], bouts_by_file[fi][ch], bursts_by_file[fi][ch], sampling_rate_hz
         )
-        rows.append({**meta, **metrics})
-    cols = [*(c for c in _META_COLUMNS if c in channel_map.columns), *METRIC_COLUMNS]
+        row: dict[str, object] = {**meta, **metrics}
+        if spill_by_file is not None:
+            row["spill_fraction"] = float(spill_by_file[fi][ch])
+        if zero_by_file is not None:
+            row["zero_fraction"] = float(zero_by_file[fi][ch])
+        rows.append(row)
+    qc_cols = [
+        *(["spill_fraction"] if spill_by_file is not None else []),
+        *(["zero_fraction"] if zero_by_file is not None else []),
+    ]
+    cols = [*(c for c in _META_COLUMNS if c in channel_map.columns), *METRIC_COLUMNS, *qc_cols]
     frame = pd.DataFrame(rows, columns=cols)
     count_cols = [
         "n_sips",
@@ -182,11 +204,34 @@ def mark_non_eaters(per_fly: pd.DataFrame, non_eaters: NonEatersConfig) -> pd.Da
     return out
 
 
+def mark_bad_channels(per_fly: pd.DataFrame, qc: QualityControlConfig) -> pd.DataFrame:
+    """Add boolean ``spill`` / ``unconnected`` QC columns from the per-channel fractions.
+
+    A column is added only when its removal toggle is enabled *and* the corresponding
+    fraction column is present (``per_fly_summary`` writes ``spill_fraction`` /
+    ``zero_fraction`` when the raw signal was assessed). ``True`` = drop the channel.
+    """
+    out = per_fly.copy()
+    if qc.remove_spill_quality and "spill_fraction" in out.columns:
+        out["spill"] = flag_spill_channels(
+            out["spill_fraction"].to_numpy(), qc.spill_quality_threshold
+        )
+    if qc.remove_unconnected and "zero_fraction" in out.columns:
+        out["unconnected"] = flag_unconnected_channels(
+            out["zero_fraction"].to_numpy(), qc.unconnected_zero_fraction
+        )
+    return out
+
+
 def apply_qc_removal(
     per_fly: pd.DataFrame,
-    flags: tuple[str, ...] = ("non_eater",),
+    flags: tuple[str, ...] = ("non_eater", "spill", "unconnected"),
 ) -> pd.DataFrame:
-    """Drop rows flagged by any of ``flags`` (QC removal), reindexing the result."""
+    """Drop rows flagged by any of ``flags`` (QC removal), reindexing the result.
+
+    Only flag columns actually present are consulted, so this is safe on tables that
+    predate a given QC step.
+    """
     present = [f for f in flags if f in per_fly.columns]
     if not present:
         return per_fly.reset_index(drop=True)

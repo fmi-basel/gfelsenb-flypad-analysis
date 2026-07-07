@@ -64,12 +64,19 @@ class Acquisition(BaseModel):
 
 
 class QualityControl(BaseModel):
-    """Channel-validity and spill/unconnected QC."""
+    """Channel-validity and spill/unconnected QC.
+
+    The per-channel spill (saturated-sample) and zero-sample *fractions* are always
+    computed and written to the ``per_fly`` table for transparency; the ``remove_*``
+    toggles control whether channels exceeding the matching threshold are dropped
+    before per-condition aggregation.
+    """
 
     model_config = _Strict
+    remove_unconnected: bool = True
     unconnected_zero_fraction: float = Field(0.5, ge=0.0, le=1.0)
-    spill_saturation_value: int = 4095
     remove_spill_quality: bool = True
+    spill_saturation_value: int = 4095
     spill_quality_threshold: float = Field(0.5, ge=0.0, le=1.0)
 
 

@@ -16,6 +16,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+import numpy.typing as npt
 import pandas as pd
 import yaml
 
@@ -30,15 +32,18 @@ from flypad.postprocess.metadata import (
     channel_condition_map_for_dir,
     channel_map_from_filenames,
 )
+from flypad.postprocess.quality import saturation_fraction, zero_fraction
 from flypad.stats.summaries import (
     apply_qc_removal,
     build_event_table,
+    mark_bad_channels,
     mark_non_eaters,
     per_condition_summary,
     per_fly_summary,
 )
 
 Progress = Callable[[str], None]
+FloatArray = npt.NDArray[np.float64]
 
 #: Tables written to a results directory; preferred read order for re-loading.
 TABLE_NAMES = ("events", "per_fly", "per_condition")
@@ -47,13 +52,19 @@ _TABLE_FORMATS = ("parquet", "csv")
 
 @dataclass
 class DetectionResult:
-    """Raw per-file detection output plus the channel→condition map."""
+    """Raw per-file detection output plus the channel→condition map.
+
+    ``spill_by_file`` / ``zero_by_file`` hold the per-channel spill (saturated-sample)
+    and zero-sample fractions used for spill/unconnected channel QC.
+    """
 
     files: list[Path]
     sips_by_file: list[list[ChannelSips]]
     bouts_by_file: list[list[ChannelBouts]]
     bursts_by_file: list[list[ChannelBursts]]
     channel_map: pd.DataFrame
+    spill_by_file: list[FloatArray]
+    zero_by_file: list[FloatArray]
 
 
 def _emit(progress: Progress | None, message: str) -> None:
@@ -126,9 +137,16 @@ def detect_experiment(
     sips_by_file: list[list[ChannelSips]] = []
     bouts_by_file: list[list[ChannelBouts]] = []
     bursts_by_file: list[list[ChannelBursts]] = []
+    spill_by_file: list[FloatArray] = []
+    zero_by_file: list[FloatArray] = []
     for i, path in enumerate(files, 1):
         _emit(progress, f"detect [{i}/{len(files)}] {path.name}")
         recording = load_recording(path, config)
+        raw = np.asarray(recording.capacitance.values)
+        spill_by_file.append(
+            saturation_fraction(raw, config.quality_control.spill_saturation_value)
+        )
+        zero_by_file.append(zero_fraction(raw))
         result = detect_recording(recording.capacitance, config)
         _, bursts = detect_feeding_bursts(result.sips, config.feeding_bursts)
         sips_by_file.append(result.sips)
@@ -143,14 +161,17 @@ def detect_experiment(
         bouts_by_file=bouts_by_file,
         bursts_by_file=bursts_by_file,
         channel_map=channel_map,
+        spill_by_file=spill_by_file,
+        zero_by_file=zero_by_file,
     )
 
 
 def build_tables(detection: DetectionResult, config: Config) -> dict[str, pd.DataFrame]:
     """Build the ``events`` / ``per_fly`` / ``per_condition`` tables.
 
-    ``per_fly`` keeps every channel with a ``non_eater`` QC flag; ``per_condition``
-    aggregates only the kept (non-removed) flies.
+    ``per_fly`` keeps every channel, carrying the ``non_eater`` / ``spill`` /
+    ``unconnected`` QC flags plus the ``spill_fraction`` / ``zero_fraction`` diagnostics;
+    ``per_condition`` aggregates only the kept (non-removed) flies.
     """
     rate = config.hardware.sampling_rate_hz
     events = build_event_table(
@@ -162,8 +183,11 @@ def build_tables(detection: DetectionResult, config: Config) -> dict[str, pd.Dat
         detection.bursts_by_file,
         detection.channel_map,
         rate,
+        spill_by_file=detection.spill_by_file,
+        zero_by_file=detection.zero_by_file,
     )
     per_fly = mark_non_eaters(per_fly, config.non_eaters)
+    per_fly = mark_bad_channels(per_fly, config.quality_control)
     kept = apply_qc_removal(per_fly)
     per_condition = per_condition_summary(kept, ci_level=config.stats.ci_level)
     return {"events": events, "per_fly": per_fly, "per_condition": per_condition}
@@ -243,7 +267,7 @@ def read_table(results_dir: str | Path, name: str) -> pd.DataFrame:
 
 
 def _kept(per_fly: pd.DataFrame) -> pd.DataFrame:
-    return apply_qc_removal(per_fly) if "non_eater" in per_fly.columns else per_fly
+    return apply_qc_removal(per_fly)
 
 
 #: Figure kinds renderable by :func:`render_figures`.

@@ -2,9 +2,10 @@
 mode: corrected
 
 quality_control:
+  remove_unconnected: true       # drop channels reading zero > threshold of the time
   unconnected_zero_fraction: 0.5
+  remove_spill_quality: true     # drop channels saturated > threshold of the time
   spill_saturation_value: 4095
-  remove_spill_quality: true
   spill_quality_threshold: 0.5
 
 preprocessing:

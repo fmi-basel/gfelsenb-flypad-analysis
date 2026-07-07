@@ -55,7 +55,9 @@ def run_pipeline_job(
         written += render_figures(
             tables["per_fly"], tables["events"], out_dir, config, progress=progress
         )
-    kept = len(tables["per_fly"]) - int(tables["per_fly"]["non_eater"].sum())
+    from flypad.stats import apply_qc_removal
+
+    kept = len(apply_qc_removal(tables["per_fly"]))
     return JobResult(
         out_dir=Path(out_dir),
         n_files=len(detection.files),

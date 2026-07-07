@@ -39,6 +39,16 @@ def test_corrected_preset() -> None:
     assert cfg.preprocessing.edge_handling is EdgeHandling.reflect
 
 
+def test_spill_unconnected_removal_toggles_per_preset() -> None:
+    # corrected auto-removes bad channels; matlab_compat reproduces v2.2 (no auto-removal).
+    corrected = load_config(preset="corrected")
+    assert corrected.quality_control.remove_spill_quality is True
+    assert corrected.quality_control.remove_unconnected is True
+    compat = load_config(preset="matlab_compat")
+    assert compat.quality_control.remove_spill_quality is False
+    assert compat.quality_control.remove_unconnected is False
+
+
 def test_layering_experiment_over_preset(tmp_path: Path) -> None:
     exp = tmp_path / "exp.yaml"
     exp.write_text("mode: matlab_compat\nhardware:\n  n_channels: 96\n")
