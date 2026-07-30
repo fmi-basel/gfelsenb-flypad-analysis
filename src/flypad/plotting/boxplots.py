@@ -16,7 +16,7 @@ import numpy as np
 import numpy.typing as npt
 import pandas as pd
 from matplotlib.lines import Line2D
-from matplotlib.transforms import Affine2D
+from matplotlib.transforms import Affine2D, blended_transform_factory
 
 from flypad.plotting.theme import GRAY, INK, MATLAB, PYTHON, distinguishable_colors
 
@@ -62,6 +62,99 @@ def _tilt_box(
         artist.set_transform(shear)
 
 
+def significance_marker(p: float) -> str:
+    """Star notation for a p-value: ``***`` <0.001, ``**`` <0.01, ``*`` <0.05, else ``n.s.``."""
+    if p < 0.001:
+        return "***"
+    if p < 0.01:
+        return "**"
+    if p < 0.05:
+        return "*"
+    return "n.s."
+
+
+def format_pvalue(p: float) -> str:
+    """Exact p-value for a bracket label (``p<0.001`` below the printable floor)."""
+    return "p<0.001" if p < 0.001 else f"p={p:.3g}"
+
+
+def _axes_fraction_y(ax: Any, y_data: float) -> float:
+    """Convert a data-space y to an axes-fraction y (works on any axis scale)."""
+    display = ax.transData.transform((0.0, y_data))
+    return float(ax.transAxes.inverted().transform(display)[1])
+
+
+def _expand_top(ax: Any, target_fraction: float) -> None:
+    """Grow the y-limit so ``target_fraction`` of the axes height fits inside it."""
+    if target_fraction <= 1.0:
+        return
+    ymin, ymax = ax.get_ylim()
+    if ax.get_yscale() == "log" and ymin > 0 and ymax > 0:
+        lo, hi = np.log10(ymin), np.log10(ymax)
+        ax.set_ylim(ymin, float(10 ** (lo + (hi - lo) * target_fraction)))
+    else:
+        ax.set_ylim(ymin, ymin + (ymax - ymin) * target_fraction)
+
+
+def annotate_significance(
+    ax: Any,
+    pairs: Sequence[tuple[str, str, float]],
+    positions: Mapping[str, float],
+    *,
+    data_top: float,
+    base: float = 0.05,
+    step: float = 0.085,
+    only_significant: bool = False,
+    show_pvalues: bool = False,
+    alpha: float = 0.05,
+) -> None:
+    """Draw stacked significance brackets between labelled x-positions.
+
+    ``pairs`` is ``(label_a, label_b, p_value)`` triples and ``positions`` maps each label
+    to its x-coordinate; ``data_top`` is the highest data value the brackets must clear.
+    Brackets stack bottom-up (narrowest span first) in axes-fraction steps, so the layout
+    is identical on linear and log axes, and the y-limit is grown to make room.
+    ``only_significant`` drops pairs with ``p >= alpha``; ``show_pvalues`` prints the exact
+    p instead of stars. Pairs whose labels are absent are skipped.
+    """
+    drawable = [(a, b, p) for a, b, p in pairs if a in positions and b in positions]
+    if only_significant:
+        drawable = [t for t in drawable if t[2] < alpha]
+    if not drawable:
+        return
+    drawable.sort(key=lambda t: abs(positions[t[0]] - positions[t[1]]))
+
+    tick = step * 0.3
+    # Reserve the headroom *first*, so the fractions below map to their final positions.
+    needed = _axes_fraction_y(ax, data_top) + base + (len(drawable) - 1) * step + tick + 0.06
+    _expand_top(ax, needed)
+
+    y0 = _axes_fraction_y(ax, data_top) + base
+    trans = blended_transform_factory(ax.transData, ax.transAxes)
+    label = format_pvalue if show_pvalues else significance_marker
+    for level, (a, b, p) in enumerate(drawable):
+        x1, x2 = sorted((positions[a], positions[b]))
+        y = y0 + level * step
+        ax.plot(
+            [x1, x1, x2, x2],
+            [y, y + tick, y + tick, y],
+            lw=1.0,
+            color=INK,
+            transform=trans,
+            clip_on=False,
+        )
+        ax.text(
+            (x1 + x2) / 2,
+            y + tick,
+            label(p),
+            ha="center",
+            va="bottom",
+            fontsize=8.5,
+            color=INK,
+            transform=trans,
+        )
+
+
 def my_errorbar(
     ax: Any,
     x: npt.ArrayLike,
@@ -83,6 +176,33 @@ def my_errorbar(
     return ax.errorbar(x, y, yerr=yerr, **opts)
 
 
+def swarm_offsets(values: npt.ArrayLike, width: float, n_bins: int = 40) -> FloatArray:
+    """Density-aware x-offsets for a beeswarm: points at similar y fan out symmetrically.
+
+    Values are binned along y; within a bin the points are spread evenly about the centre
+    (``-width … +width``), so the cloud's silhouette shows the distribution instead of the
+    random overlap a uniform jitter produces.
+    """
+    a = np.asarray(values, dtype=np.float64).ravel()
+    out = np.zeros(a.size, dtype=np.float64)
+    if a.size == 0:
+        return out
+    lo, hi = float(np.nanmin(a)), float(np.nanmax(a))
+    if not np.isfinite(lo) or not np.isfinite(hi) or hi <= lo:
+        bins = np.zeros(a.size, dtype=np.int64)
+    else:
+        bins = np.clip(((a - lo) / (hi - lo) * n_bins).astype(np.int64), 0, n_bins - 1)
+    for b in np.unique(bins):
+        idx = np.flatnonzero(bins == b)
+        m = idx.size
+        if m == 1:
+            continue
+        # even spacing about the centre, capped at +/- width
+        spread = np.linspace(-1.0, 1.0, m)
+        out[idx] = spread * min(width, width * m / 8.0 + width * 0.25)
+    return out
+
+
 def plot_spread(
     ax: Any,
     groups: Mapping[str, npt.ArrayLike],
@@ -90,11 +210,16 @@ def plot_spread(
     positions: Sequence[float] | None = None,
     colors: Sequence[Any] | None = None,
     palette: Palette | None = None,
-    jitter: float = 0.08,
+    jitter: float = 0.11,
     seed: int = 0,
-    size: float = 14,
+    size: float = 11,
+    mode: str = "swarm",
 ) -> Any:
-    """Jittered scatter of the individual values in each group (``plotSpread``)."""
+    """Scatter of the individual values in each group (``plotSpread``).
+
+    ``mode="swarm"`` (default) lays the points out by density (see :func:`swarm_offsets`);
+    ``mode="jitter"`` reproduces the original uniform random offsets.
+    """
     labels, arrays = _as_groups(groups)
     pos = list(positions) if positions is not None else list(range(len(labels)))
     cols = _resolve_colors(labels, colors, palette)
@@ -102,8 +227,20 @@ def plot_spread(
     for i, a in enumerate(arrays):
         if a.size == 0:
             continue
-        xs = pos[i] + (rng.random(a.size) - 0.5) * 2 * jitter
-        ax.scatter(xs, a, s=size, color=cols[i], alpha=0.55, edgecolor="none", zorder=3)
+        if mode == "swarm":
+            xs = pos[i] + swarm_offsets(a, jitter)
+        else:
+            xs = pos[i] + (rng.random(a.size) - 0.5) * 2 * jitter
+        ax.scatter(
+            xs,
+            a,
+            s=size,
+            color=cols[i],
+            alpha=0.75,
+            edgecolor="white",
+            linewidth=0.3,
+            zorder=3,
+        )
     return ax
 
 
@@ -118,16 +255,29 @@ def tilted_boxplot(
     tilt_deg: float = 0.0,
     rotation: float = 30.0,
     ylabel: str | None = None,
+    annotations: Sequence[tuple[str, str, float]] | None = None,
+    yscale: str = "linear",
+    only_significant: bool = False,
+    show_pvalues: bool = False,
 ) -> Any:
     """Box plot per group with overlaid per-fly dots and tilted category labels.
 
     ``tilt_deg`` shears the box glyphs for the classic flyPAD tilted look (0 = upright);
     ``show_n`` appends each group's fly count as a second line of its tick label.
+    ``annotations`` is a list of ``(label_a, label_b, p_value)`` pairwise comparisons drawn
+    as stacked significance brackets above the boxes (``only_significant`` / ``show_pvalues``
+    tune them). ``yscale`` accepts ``"linear"``, ``"log"`` or ``"symlog"`` — the latter two
+    keep a strongly skewed group readable next to a large one.
     """
     ax = _new_ax(ax)
     labels, arrays = _as_groups(groups)
     cols = _resolve_colors(labels, colors, palette)
     positions = list(range(len(labels)))
+    if yscale == "log":
+        # linthresh-free log needs positive data; zeros are common (flies that never ate)
+        ax.set_yscale("symlog" if any((a <= 0).any() for a in arrays if a.size) else "log")
+    elif yscale == "symlog":
+        ax.set_yscale("symlog")
 
     drawable = [(i, a) for i, a in enumerate(arrays) if a.size]
     if drawable:
@@ -137,14 +287,18 @@ def tilted_boxplot(
             widths=0.5,
             showfliers=False,
             patch_artist=True,
-            medianprops={"color": INK, "linewidth": 1.5},
+            medianprops={"color": INK, "linewidth": 1.6},
             whiskerprops={"color": GRAY, "linewidth": 1.0},
             capprops={"color": GRAY, "linewidth": 1.0},
-            boxprops={"edgecolor": GRAY, "linewidth": 1.0},
+            boxprops={"linewidth": 1.1},
+            zorder=2,
         )
         for k, ((i, a), patch) in enumerate(zip(drawable, bp["boxes"], strict=True)):
+            # Light fill + a saturated edge in the same hue: the box frames the points
+            # rather than competing with them.
             patch.set_facecolor(cols[i])
-            patch.set_alpha(0.25)
+            patch.set_alpha(0.16)
+            patch.set_edgecolor(cols[i])
             if tilt_deg:
                 _tilt_box(bp, k, (positions[i], float(np.median(a))), tilt_deg, ax)
 
@@ -160,6 +314,18 @@ def tilted_boxplot(
     ax.set_xticklabels(tick_labels, rotation=rotation, ha="right" if rotation else "center")
     if ylabel:
         ax.set_ylabel(ylabel)
+
+    if annotations:
+        finite = [a for a in arrays if a.size]
+        if finite:
+            annotate_significance(
+                ax,
+                annotations,
+                {label: positions[i] for i, label in enumerate(labels)},
+                data_top=float(max(np.nanmax(a) for a in finite)),
+                only_significant=only_significant,
+                show_pvalues=show_pvalues,
+            )
     return ax
 
 

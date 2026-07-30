@@ -486,3 +486,90 @@ def test_build_comparisons_single_condition_is_empty() -> None:
     one = one[one["condition_label"] == "refed"]  # only one condition
     comp = build_comparisons(one, _fast_cfg("none"))
     assert comp.empty and list(comp.columns) == list(COMPARISON_COLUMNS)
+
+
+# --------------------------------------------------------------------------- #
+# Wilcoxon rank-sum test
+# --------------------------------------------------------------------------- #
+def test_ordered_condition_labels_follows_condition_number() -> None:
+    from flypad.stats import ordered_condition_labels
+
+    df = pd.DataFrame(
+        {
+            "condition": [3, 1, 2, 1],
+            "condition_label": ["44h starved", "fully fed", "24h starved", "fully fed"],
+        }
+    )
+    # experiment order, not alphabetical ("24h" < "44h" < "fully fed")
+    assert ordered_condition_labels(df) == ["fully fed", "24h starved", "44h starved"]
+
+
+def test_is_two_choice_requires_different_substrates() -> None:
+    from flypad.stats import is_two_choice
+
+    same = pd.DataFrame(
+        {"substrate_label": ["sucrose", "sucrose"], "substrate_side": ["left", "right"]}
+    )
+    assert is_two_choice(same) is False  # one food on both sides -> no real choice
+    differ = pd.DataFrame(
+        {"substrate_label": ["sucrose", "yeast"], "substrate_side": ["left", "right"]}
+    )
+    assert is_two_choice(differ) is True
+
+
+def test_is_two_choice_unlabelled_falls_back_to_sides() -> None:
+    from flypad.stats import is_two_choice
+
+    unlabelled = pd.DataFrame({"substrate_label": ["", ""], "substrate_side": ["left", "right"]})
+    assert is_two_choice(unlabelled) is True  # unknown substrates -> keep the left/right split
+    assert is_two_choice(pd.DataFrame({"n_sips": [1.0]})) is False  # no substrate columns
+
+
+def test_ordered_condition_labels_falls_back_to_sorted() -> None:
+    from flypad.stats import ordered_condition_labels
+
+    df = pd.DataFrame({"condition_label": ["b", "a", "c"]})
+    assert ordered_condition_labels(df) == ["a", "b", "c"]
+
+
+def test_ranksum_test_matches_scipy() -> None:
+    from scipy.stats import ranksums
+
+    from flypad.stats import ranksum_test
+
+    a = np.array([1.0, 2, 3, 4, 5, 6])
+    b = np.array([4.0, 5, 6, 7, 8, 9])
+    res = ranksum_test(a, b)
+    exp = ranksums(a, b)
+    assert res.pvalue == pytest.approx(float(exp.pvalue))
+    assert res.statistic == pytest.approx(float(exp.statistic))
+    assert res.n_permutations == 0 and res.n_a == 6 and res.n_b == 6
+
+
+def test_ranksum_test_empty_raises() -> None:
+    from flypad.stats import ranksum_test
+
+    with pytest.raises(ValueError, match="non-empty"):
+        ranksum_test([1.0, 2.0], [])
+
+
+def test_pairwise_comparisons_ranksum() -> None:
+    from flypad.stats import pairwise_comparisons
+
+    groups = {"a": [1.0, 2, 3, 4, 5, 6], "b": [10.0, 11, 12, 13, 14, 15]}
+    df = pairwise_comparisons(groups, test="ranksum")
+    assert len(df) == 1
+    assert df.iloc[0]["p_value"] < 0.05  # clearly separated groups
+
+
+def test_build_comparisons_uses_ranksum_when_configured() -> None:
+    from flypad.config import load_config
+    from flypad.stats import build_comparisons
+
+    cfg = load_config(
+        preset="matlab_compat",
+        overrides=["plotting.facet_by=none", "stats.pairwise_test=ranksum"],
+    )
+    comp = build_comparisons(_per_fly_2files_2conditions(), cfg)
+    assert set(comp["test"]) == {"ranksum"}
+    assert (comp["p_value"] > 0).all() and (comp["p_value"] <= 1).all()

@@ -19,6 +19,28 @@ from flypad.io.discovery import parse_filename
 FacetBy = Literal["substrate", "file", "none"]
 
 
+def ordered_condition_labels(
+    df: pd.DataFrame,
+    group_col: str = "condition_label",
+    order_col: str = "condition",
+) -> list[str]:
+    """Condition labels in experiment order, not alphabetical order.
+
+    Sorts by the numeric ``condition`` code (which follows the order the conditions are
+    listed in ``metadata.conditions`` / the ``## conditions`` sidecar block), so a
+    starvation series reads ``fully fed → 24h → 44h`` rather than ``24h → 44h → fully
+    fed``. Falls back to sorted labels when no numeric code is available.
+    """
+    if group_col not in df.columns:
+        return []
+    if order_col in df.columns:
+        keyed = df[[order_col, group_col]].dropna(subset=[group_col])
+        if not keyed.empty:
+            first = keyed.groupby(group_col, dropna=False)[order_col].min().sort_values()
+            return [str(label) for label in first.index]
+    return sorted({str(x) for x in df[group_col].dropna()})
+
+
 def substrate_facets(df: pd.DataFrame) -> tuple[str | None, list[str]]:
     """Choose the column to facet substrates by, and its ordered distinct values.
 
@@ -38,6 +60,23 @@ def substrate_facets(df: pd.DataFrame) -> tuple[str | None, list[str]]:
         if len(sides) >= 2:
             return "substrate_side", sides
     return None, []
+
+
+def is_two_choice(df: pd.DataFrame) -> bool:
+    """Whether the arenas offer a genuine *choice* between two different substrates.
+
+    A left/right comparison only means something when the two sides hold different food.
+    When every channel carries the same ``substrate_label`` the assay is single-substrate
+    and the comparison is noise, so callers should skip it. Unlabelled experiments return
+    ``True``: the substrates are unknown, so the classic left/right split is still shown.
+    """
+    if "substrate_label" not in df.columns:
+        return "substrate_side" in df.columns
+    labels = df["substrate_label"].dropna().astype(str).str.strip()
+    labeled = labels[labels != ""]
+    if labeled.empty:  # no labels recorded -> cannot rule it out
+        return "substrate_side" in df.columns
+    return int(labeled.nunique()) >= 2
 
 
 def file_facet_label(file_name: object, file_index: object) -> str:

@@ -170,6 +170,74 @@ def test_write_tables_expands_tilde(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     assert not (Path.cwd() / "~" / "d").exists()  # no literal "~/d" dir left in the cwd
 
 
+def test_detection_reports_measured_length(tmp_path: Path) -> None:
+    from flypad.config import load_config
+    from flypad.pipeline import detect_experiment
+
+    data_dir, cfg = _make_dataset(tmp_path, n_time=3000)
+    # config claims a longer recording than the file actually holds
+    conf = load_config(cfg, overrides=["acquisition.duration_samples=99999"])
+    detection = detect_experiment(data_dir, conf)
+    assert detection.n_samples == 3000  # the measured length, not the configured one
+
+
+def test_raster_written_per_recording(tmp_path: Path) -> None:
+    from flypad.config import load_config
+    from flypad.pipeline import render_figures
+    from flypad.pipeline.runner import _slug
+
+    names = {
+        0: "CapacitanceData_C01_01_02_2026-07-09T10_01_52.0+02_00",
+        1: "CapacitanceData_C01_01_02_2026-07-09T15_43_50.0+02_00",
+    }
+    events = pd.DataFrame(
+        {
+            "file_index": [0, 0, 1, 1],
+            "file_name": [names[0], names[0], names[1], names[1]],
+            "channel": [0, 1, 0, 1],
+            "condition": [1, 1, 1, 1],
+            "condition_label": ["a", "a", "a", "a"],
+            "onset": [10, 20, 30, 40],
+        }
+    )
+    per_fly = pd.DataFrame(
+        {
+            "file_index": [0, 1],
+            "channel": [0, 0],
+            "condition": [1, 1],
+            "condition_label": ["a", "a"],
+            "n_sips": [2.0, 2.0],
+        }
+    )
+    cfg = load_config(
+        preset="corrected", overrides=["plotting.vector_format=none", "hardware.n_channels=2"]
+    )
+    written = render_figures(per_fly, events, tmp_path, cfg, kinds=["raster"])
+    stems = sorted(p.stem for p in written)
+    assert stems == ["raster_2026-07-09_10-01-52", "raster_2026-07-09_15-43-50"]
+    assert _slug("2026-07-09 10:01:52") == "2026-07-09_10-01-52"
+
+
+def test_substrate_figure_skipped_for_single_substrate(tmp_path: Path) -> None:
+    from flypad.config import load_config
+    from flypad.pipeline import render_figures
+
+    per_fly = pd.DataFrame(
+        {
+            "condition": [1, 1, 2, 2],
+            "condition_label": ["a", "a", "b", "b"],
+            "substrate_label": ["sucrose"] * 4,  # same food both sides -> not a choice assay
+            "substrate_side": ["left", "right", "left", "right"],
+            "n_sips": [10.0, 4.0, 8.0, 6.0],
+        }
+    )
+    cfg = load_config(preset="corrected", overrides=["plotting.vector_format=none"])
+    written = render_figures(per_fly, None, tmp_path, cfg, kinds=["substrate", "boxplot"])
+    names = [p.name for p in written]
+    assert not any(n.startswith("substrate") for n in names)  # skipped
+    assert any(n.startswith("boxplot") for n in names)  # other figures unaffected
+
+
 def test_relabel_conditions_helper() -> None:
     from flypad.pipeline.runner import _relabel_conditions
 

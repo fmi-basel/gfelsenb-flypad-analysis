@@ -154,7 +154,10 @@ class Stats(BaseModel):
     alternative: Literal["two-sided", "less", "greater"] = "two-sided"
     ci_level: float = Field(0.95, gt=0.0, lt=1.0)
     multiple_comparison: Literal["none", "bonferroni", "holm"] = "holm"
-    # Location statistic used for the pairwise comparison permutation tests.
+    # Which test drives the pairwise comparisons: a label-shuffling "permutation" test
+    # (on the `statistic` below) or the non-parametric Wilcoxon "ranksum" (Mann-Whitney U).
+    pairwise_test: Literal["permutation", "ranksum"] = "permutation"
+    # Location statistic used by the permutation test (ignored for ranksum).
     statistic: Literal["mean", "median"] = "mean"
 
 
@@ -196,6 +199,16 @@ class Plotting(BaseModel):
     #   "file"      — one axis per input recording, titled by its timestamp;
     #   "none"      — a single pooled axis.
     facet_by: Literal["substrate", "file", "none"] = "substrate"
+    # Draw pairwise-comparison significance brackets (from the comparisons table) on the
+    # box plot when a comparisons table is available.
+    annotate_stats: bool = True
+    # Draw only the significant brackets (hides the "n.s." ones), and/or print the exact
+    # p-value instead of star notation.
+    annotate_only_significant: bool = False
+    annotate_p_values: bool = False
+    # y-axis scale for the box-plot panels; "symlog" keeps a near-zero group readable
+    # next to a large one (it tolerates the zeros that non-eating flies produce).
+    y_scale: Literal["linear", "log", "symlog"] = "linear"
     # Presentation-only rename applied to condition labels in figures (x-axis / legend
     # entries), keyed by the label as it appears in the tables. The exported tables keep
     # their canonical labels; only the plots show the display names. Example:

@@ -85,6 +85,7 @@ def standalone_dashboard(
     central: str = "median",
     tilt_deg: float = 0.0,
     title: str | None = None,
+    annotations: Sequence[tuple[str, str, float]] | None = None,
 ) -> Any:
     """A three-panel ``PlotFLYPAD_Standalone`` dashboard for one metric.
 
@@ -92,12 +93,20 @@ def standalone_dashboard(
     (median+IQR or mean+CI), and the metric's CCDF. ``central`` selects ``"median"``
     (``PlotFLYPAD_Standalone_MEDIAN``) or ``"mean"`` (``..._MEAN``). A stable
     ``condition_palette`` keeps each condition the same colour across panels.
+    ``annotations`` draws pairwise significance brackets on the box panel.
     """
     groups = _grouped_values(per_fly, metric, group_col)
     palette = condition_palette(groups.keys())
     fig, axes = plt.subplots(1, 3, figsize=(13.5, 4.0))
 
-    tilted_boxplot(groups, ax=axes[0], palette=palette, tilt_deg=tilt_deg, ylabel=metric)
+    tilted_boxplot(
+        groups,
+        ax=axes[0],
+        palette=palette,
+        tilt_deg=tilt_deg,
+        ylabel=metric,
+        annotations=annotations,
+    )
     axes[0].set_title("per-fly distribution")
 
     if central == "mean":

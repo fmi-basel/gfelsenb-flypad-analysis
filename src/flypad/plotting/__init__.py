@@ -4,10 +4,12 @@ Presentation layer — imports matplotlib, but the science core never imports th
 """
 
 from flypad.plotting.boxplots import (
+    annotate_significance,
     ci_plot,
     median_iqr_plot,
     my_errorbar,
     plot_spread,
+    significance_marker,
     substrate_comparison,
     tilted_boxplot,
 )
@@ -22,6 +24,7 @@ from flypad.plotting.facets import (
     substrate_facets,
     with_file_labels,
 )
+from flypad.plotting.labels import METRIC_LABELS, metric_label, time_axis
 from flypad.plotting.rasters import raster_plot
 from flypad.plotting.theme import (
     condition_palette,
@@ -39,6 +42,8 @@ from flypad.plotting.timecourses import (
 )
 
 __all__ = [
+    "METRIC_LABELS",
+    "annotate_significance",
     "ccdf_plot",
     "cdf_plot",
     "ci_plot",
@@ -51,6 +56,7 @@ __all__ = [
     "faceted_timecourse",
     "jbfill",
     "median_iqr_plot",
+    "metric_label",
     "my_errorbar",
     "plot_spread",
     "raster_plot",
@@ -59,6 +65,7 @@ __all__ = [
     "set_theme",
     "shaded_lines",
     "shaded_plot",
+    "significance_marker",
     "standalone_dashboard",
     "substrate_comparison",
     "substrate_facets",
@@ -66,5 +73,6 @@ __all__ = [
     "theme_context",
     "tight_subplot",
     "tilted_boxplot",
+    "time_axis",
     "with_file_labels",
 ]

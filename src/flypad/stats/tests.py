@@ -116,6 +116,28 @@ def permutation_test_ccdf(
     return PermutationResult(obs, pvalue, n_permutations, av.size, bv.size)
 
 
+def ranksum_test(
+    a: npt.ArrayLike,
+    b: npt.ArrayLike,
+    *,
+    alternative: Alternative = "two-sided",
+) -> PermutationResult:
+    """Wilcoxon rank-sum (Mann-Whitney U) test — the MATLAB ``ranksum`` analogue.
+
+    Returns the rank-sum z-statistic and its p-value (``scipy.stats.ranksums``);
+    ``n_permutations = 0`` marks the analytic, non-permutation test.
+    """
+    from scipy.stats import ranksums
+
+    av = np.asarray(a, dtype=np.float64).ravel()
+    bv = np.asarray(b, dtype=np.float64).ravel()
+    av, bv = av[np.isfinite(av)], bv[np.isfinite(bv)]
+    if av.size == 0 or bv.size == 0:
+        raise ValueError("both samples must be non-empty")
+    res = ranksums(av, bv, alternative=alternative)
+    return PermutationResult(float(res.statistic), float(res.pvalue), 0, av.size, bv.size)
+
+
 def adjust_pvalues(
     pvalues: npt.ArrayLike,
     method: Literal["none", "bonferroni", "holm"] = "holm",
@@ -140,6 +162,7 @@ def adjust_pvalues(
 def pairwise_comparisons(
     groups: Mapping[str, npt.ArrayLike],
     *,
+    test: Literal["permutation", "ranksum"] = "permutation",
     statistic: StatName = "mean",
     n_permutations: int = 10_000,
     alternative: Alternative = "two-sided",
@@ -147,17 +170,20 @@ def pairwise_comparisons(
     adjust: Literal["none", "bonferroni", "holm"] = "holm",
     ccdf: bool = False,
 ) -> pd.DataFrame:
-    """All-pairs permutation comparison of the named groups.
+    """All-pairs comparison of the named groups.
 
     Returns one row per unordered pair with the observed statistic, raw and adjusted
-    p-values, and sample sizes. With ``ccdf=True`` the max-CCDF-gap statistic is used
-    (``pairwise_comparisons_CCDF``); otherwise a difference-of-``statistic`` test.
+    p-values, and sample sizes. ``test="ranksum"`` runs the Wilcoxon rank-sum test;
+    otherwise a permutation test — the max-CCDF-gap statistic with ``ccdf=True``
+    (``pairwise_comparisons_CCDF``), else a difference-of-``statistic`` test.
     """
     labels = list(groups)
     rows: list[dict[str, object]] = []
     for i, la in enumerate(labels):
         for lb in labels[i + 1 :]:
-            if ccdf:
+            if test == "ranksum":
+                res = ranksum_test(groups[la], groups[lb], alternative=alternative)
+            elif ccdf:
                 res = permutation_test_ccdf(
                     groups[la], groups[lb], n_permutations=n_permutations, seed=seed
                 )

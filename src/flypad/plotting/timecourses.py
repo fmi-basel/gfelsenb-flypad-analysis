@@ -13,6 +13,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import numpy.typing as npt
 
+from flypad.plotting.labels import time_axis
 from flypad.plotting.theme import GRAY, distinguishable_colors
 
 
@@ -76,24 +77,42 @@ def shaded_lines(
     ax: Any | None = None,
     colors: Sequence[Any] | None = None,
     palette: Mapping[str, Any] | None = None,
-    xlabel: str = "time (s)",
-    ylabel: str = "cumulative sips per fly",
+    xlabel: str | None = None,
+    ylabel: str = "Cumulative sips per fly",
     legend: bool = True,
+    direct_labels: bool = False,
 ) -> Any:
-    """Overlay several ``label -> (x, mean, err)`` shaded curves with a legend.
+    """Overlay several ``label -> (x, mean, err)`` shaded curves.
 
-    Set ``legend=False`` to suppress the per-axis legend (e.g. when several axes
-    share one figure-level legend, as in the substrate-faceted figures).
+    ``xlabel=None`` (the default) treats x as seconds and rescales it to the most readable
+    unit (s / min / h). ``direct_labels`` writes each condition at the end of its own curve
+    instead of in a legend, removing the colour-matching eye travel; ``legend=False``
+    suppresses the per-axis legend (e.g. when several axes share one figure legend).
     """
     ax = _new_ax(ax)
     labels = list(series)
     cols = _palette_colors(labels, colors, palette)
+    auto_label = xlabel
     for i, label in enumerate(labels):
         x, y, err = series[label]
-        shaded_plot(ax, x, y, err, color=cols[i], label=label)
-    if labels and legend:
+        xs = np.asarray(x, dtype=np.float64)
+        if xlabel is None:
+            xs, auto_label = time_axis(xs)
+        shaded_plot(ax, xs, y, err, color=cols[i], label=label)
+        if direct_labels and xs.size:
+            yv = np.asarray(y, dtype=np.float64)
+            ax.annotate(
+                label,
+                xy=(xs[-1], yv[-1]),
+                xytext=(4, 0),
+                textcoords="offset points",
+                va="center",
+                fontsize=9,
+                color=cols[i],
+            )
+    if labels and legend and not direct_labels:
         ax.legend(frameon=False, fontsize=9)
-    ax.set_xlabel(xlabel)
+    ax.set_xlabel(auto_label or "Time (s)")
     ax.set_ylabel(ylabel)
     return ax
 

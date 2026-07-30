@@ -86,6 +86,16 @@ def test_stats_statistic_default_and_override() -> None:
     assert cfg.stats.statistic == "median"
 
 
+def test_stats_pairwise_test_option() -> None:
+    assert load_config(preset="corrected").stats.pairwise_test == "permutation"
+    cfg = load_config(preset="corrected", overrides=["stats.pairwise_test=ranksum"])
+    assert cfg.stats.pairwise_test == "ranksum"
+
+
+def test_plotting_annotate_stats_default() -> None:
+    assert load_config(preset="corrected").plotting.annotate_stats is True
+
+
 def test_layering_experiment_over_preset(tmp_path: Path) -> None:
     exp = tmp_path / "exp.yaml"
     exp.write_text("mode: matlab_compat\nhardware:\n  n_channels: 96\n")

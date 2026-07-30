@@ -186,6 +186,11 @@ def test_standalone_dashboard_mean_variant() -> None:
     assert len(fig.axes) == 3
 
 
+def test_standalone_dashboard_annotates_box_panel() -> None:
+    fig = standalone_dashboard(_per_fly(), "n_sips", annotations=[("fed", "starved", 0.0001)])
+    assert "***" in [t.get_text() for t in fig.axes[0].texts]  # bracket on the box panel
+
+
 # --------------------------------------------------------------------------- #
 # rasters
 # --------------------------------------------------------------------------- #
@@ -252,11 +257,84 @@ def test_tilted_boxplot_show_n_false_omits_count() -> None:
     assert labels == ["a", "b"]  # no "n=" appended
 
 
+def test_metric_label_known_and_fallback() -> None:
+    from flypad.plotting import metric_label
+
+    assert metric_label("n_sips") == "Sips per fly"
+    assert metric_label("some_new_metric") == "Some new metric"  # prettified fallback
+
+
+def test_time_axis_picks_unit() -> None:
+    from flypad.plotting import time_axis
+
+    _v, lbl = time_axis(np.array([0.0, 60.0]))
+    assert lbl == "Time (s)"
+    v, lbl = time_axis(np.array([0.0, 600.0]))
+    assert lbl == "Time (min)" and v[-1] == pytest.approx(10.0)
+    v, lbl = time_axis(np.array([0.0, 10800.0]))
+    assert lbl == "Time (h)" and v[-1] == pytest.approx(3.0)
+
+
+def test_swarm_offsets_spread_and_bounds() -> None:
+    from flypad.plotting.boxplots import swarm_offsets
+
+    off = swarm_offsets(np.zeros(9), 0.1)  # all identical -> maximal spread
+    assert np.abs(off).max() <= 0.1 + 1e-9
+    assert off.min() < 0 < off.max()  # symmetric about the centre
+    assert swarm_offsets(np.array([1.0]), 0.1)[0] == 0.0  # a lone point stays centred
+
+
+def test_tilted_boxplot_symlog_scale() -> None:
+    ax = tilted_boxplot({"a": [0.0, 1, 10], "b": [100.0, 1000, 5000]}, yscale="symlog")
+    assert ax.get_yscale() == "symlog"
+
+
+def test_tilted_boxplot_log_falls_back_to_symlog_with_zeros() -> None:
+    ax = tilted_boxplot({"a": [0.0, 1, 10]}, yscale="log")
+    assert ax.get_yscale() == "symlog"  # zeros are unrepresentable on a pure log axis
+
+
+def test_annotations_only_significant_and_pvalues() -> None:
+    groups = {"a": [1.0, 2, 3], "b": [8.0, 9, 10]}
+    ax = tilted_boxplot(groups, annotations=[("a", "b", 0.4)], only_significant=True)
+    assert "n.s." not in [t.get_text() for t in ax.texts]  # dropped
+    ax2 = tilted_boxplot(groups, annotations=[("a", "b", 0.012)], show_pvalues=True)
+    assert "p=0.012" in [t.get_text() for t in ax2.texts]
+
+
+def test_significance_marker_thresholds() -> None:
+    from flypad.plotting import significance_marker
+
+    assert significance_marker(0.0005) == "***"
+    assert significance_marker(0.005) == "**"
+    assert significance_marker(0.03) == "*"
+    assert significance_marker(0.2) == "n.s."
+
+
+def test_tilted_boxplot_annotations_draw_brackets() -> None:
+    ax = tilted_boxplot({"a": [1.0, 2, 3], "b": [8.0, 9, 10]}, annotations=[("a", "b", 0.0001)])
+    assert "***" in [t.get_text() for t in ax.texts]  # significance marker drawn
+
+
 def test_tilted_boxplot_palette_colors_boxes() -> None:
+    from matplotlib.colors import to_rgb
+
     palette = condition_palette(["a", "b"])
     ax = tilted_boxplot({"a": [1.0, 2, 3], "b": [4.0, 5, 6]}, palette=palette, show_points=False)
     facecolor = ax.patches[0].get_facecolor()[:3]
-    assert np.allclose(facecolor, palette["a"], atol=1e-6)
+    assert np.allclose(facecolor, to_rgb(palette["a"]), atol=1e-6)
+
+
+def test_condition_palette_uses_wong_colors() -> None:
+    from flypad.plotting.theme import WONG
+
+    palette = condition_palette(["fed", "starved"])
+    assert set(palette.values()) <= set(WONG)  # colour-blind-safe, not the neon RGB grid
+
+
+def test_condition_palette_preserves_order_when_unsorted() -> None:
+    palette = condition_palette(["starved", "fed"], sort=False)
+    assert list(palette) == ["starved", "fed"]
 
 
 def test_substrate_comparison_two_boxes_per_condition() -> None:
@@ -273,8 +351,19 @@ def test_substrate_comparison_two_boxes_per_condition() -> None:
 
 
 def test_raster_seconds_axis() -> None:
-    ax = raster_plot([np.array([100, 200])], sampling_rate_hz=100)
-    assert ax.get_xlabel() == "time (s)"
+    ax = raster_plot([np.array([100, 200])], sampling_rate_hz=100)  # 1-2 s
+    assert ax.get_xlabel() == "Time (s)"
+
+
+def test_raster_switches_to_minutes_for_long_recordings() -> None:
+    ax = raster_plot([np.array([0, 259_209])], sampling_rate_hz=100)  # ~43 min
+    assert ax.get_xlabel() == "Time (min)"
+    assert ax.collections[0].get_positions()[-1] == pytest.approx(43.2, abs=0.1)
+
+
+def test_raster_sample_axis_without_rate() -> None:
+    ax = raster_plot([np.array([100, 200])])
+    assert ax.get_xlabel() == "sample"
 
 
 def test_shaded_lines_band_per_series() -> None:
@@ -471,7 +560,7 @@ def test_faceted_boxplot_by_file_titled_with_timestamp() -> None:
         per_fly, "n_sips", facet_col=col, values=values, palette=palette, noun=noun
     )
     assert [ax.get_title() for ax in fig.axes] == ["2026-07-09 10:01:52", "2026-07-09 15:43:50"]
-    assert fig._suptitle.get_text() == "n_sips by file"
+    assert fig._suptitle.get_text() == "Sips per fly by file"
 
 
 def test_faceted_dashboard_row_per_facet() -> None:
@@ -490,7 +579,25 @@ def test_faceted_dashboard_row_per_facet() -> None:
     assert fig.axes[0].get_title() == "sucrose"
     assert fig.axes[3].get_title() == "yeast"
     assert fig.axes[2].get_title() == "CCDF" and fig.axes[5].get_title() == "CCDF"
-    assert fig._suptitle.get_text() == "n_sips dashboard by substrate"
+    assert fig._suptitle.get_text() == "Sips per fly dashboard by substrate"
+
+
+def test_faceted_boxplot_annotations_per_facet() -> None:
+    per_fly = _per_fly_two_substrates()
+    palette = condition_palette(per_fly["condition_label"])
+    fig = faceted_boxplot(
+        per_fly,
+        "n_sips",
+        facet_col="substrate_label",
+        values=["sucrose", "yeast"],
+        palette=palette,
+        annotations_by_facet={
+            "sucrose": [("fed", "starved", 0.0001)],
+            "yeast": [("fed", "starved", 0.9)],
+        },
+    )
+    assert "***" in [t.get_text() for t in fig.axes[0].texts]  # sucrose facet significant
+    assert "n.s." in [t.get_text() for t in fig.axes[1].texts]  # yeast facet not
 
 
 def test_faceted_dashboard_by_file_mean_variant() -> None:
@@ -502,4 +609,23 @@ def test_faceted_dashboard_by_file_mean_variant() -> None:
     assert len(fig.axes) == 6
     assert fig.axes[0].get_title() == "2026-07-09 10:01:52"
     assert fig.axes[1].get_title() == "mean ± 95% CI"
-    assert fig._suptitle.get_text() == "n_sips dashboard by file"
+    assert fig._suptitle.get_text() == "Sips per fly dashboard by file"
+
+
+def test_faceted_dashboard_annotates_box_panels() -> None:
+    per_fly = _per_fly_two_substrates()
+    palette = condition_palette(per_fly["condition_label"])
+    fig = faceted_dashboard(
+        per_fly,
+        "n_sips",
+        facet_col="substrate_label",
+        values=["sucrose", "yeast"],
+        palette=palette,
+        annotations_by_facet={
+            "sucrose": [("fed", "starved", 0.0001)],
+            "yeast": [("fed", "starved", 0.9)],
+        },
+    )
+    # box panels are the first column of each row: axes[0] (row 0) and axes[3] (row 1)
+    assert "***" in [t.get_text() for t in fig.axes[0].texts]
+    assert "n.s." in [t.get_text() for t in fig.axes[3].texts]

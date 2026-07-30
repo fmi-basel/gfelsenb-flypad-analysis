@@ -53,7 +53,13 @@ def run(
     written = write_tables(tables, out_dir, formats=cfg.output.formats)
     if plots and cfg.plotting.enabled:
         written += render_figures(
-            tables["per_fly"], tables["events"], out_dir, cfg, progress=console.log
+            tables["per_fly"],
+            tables["events"],
+            out_dir,
+            cfg,
+            comparisons=tables["comparisons"],
+            n_samples=detection.n_samples,
+            progress=console.log,
         )
 
     from flypad.stats import apply_qc_removal
@@ -64,7 +70,11 @@ def run(
         cfg,
         files=detection.files,
         command="run",
-        extra={"n_sips": len(tables["events"]), "n_flies_kept": kept},
+        extra={
+            "n_sips": len(tables["events"]),
+            "n_flies_kept": kept,
+            "n_samples_recorded": detection.n_samples,
+        },
     )
     console.print(
         f"[green]done[/] {len(detection.files)} files · "
@@ -250,9 +260,20 @@ def plot(
         events = read_table(results_dir, "events")
     except FileNotFoundError:
         events = None
+    try:
+        comparisons = read_table(results_dir, "comparisons")
+    except FileNotFoundError:
+        comparisons = None
     kinds = [k.strip() for k in kind.split(",") if k.strip()]
     written = render_figures(
-        per_fly, events, results_dir, cfg, kinds=kinds, metric=metric, progress=console.log
+        per_fly,
+        events,
+        results_dir,
+        cfg,
+        kinds=kinds,
+        metric=metric,
+        comparisons=comparisons,
+        progress=console.log,
     )
     console.print(f"[green]done[/] {len(written)} figure files in [bold]{results_dir}/figures[/]")
 

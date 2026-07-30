@@ -53,7 +53,13 @@ def run_pipeline_job(
     written = write_tables(tables, out_dir, formats=config.output.formats)
     if make_plots and config.plotting.enabled:
         written += render_figures(
-            tables["per_fly"], tables["events"], out_dir, config, progress=progress
+            tables["per_fly"],
+            tables["events"],
+            out_dir,
+            config,
+            comparisons=tables["comparisons"],
+            n_samples=detection.n_samples,
+            progress=progress,
         )
     from flypad.stats import apply_qc_removal
 

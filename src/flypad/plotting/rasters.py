@@ -14,6 +14,7 @@ import numpy as np
 import numpy.typing as npt
 from matplotlib.lines import Line2D
 
+from flypad.plotting.labels import time_axis
 from flypad.plotting.theme import GRAY, INK
 
 
@@ -42,13 +43,21 @@ def raster_plot(
     Colour each row by its condition via ``row_conditions`` (one label per row) + a
     ``palette`` (label -> colour); a legend of the conditions present is added. Falls
     back to explicit per-row ``colors`` or a single ink colour. When ``sampling_rate_hz``
-    is given the time axis is shown in seconds.
+    is given the time axis is shown in the most readable unit (s / min / h), matching the
+    time-course figures.
     """
     ax = _new_ax(ax, len(rows))
     scale = 1.0 / sampling_rate_hz if sampling_rate_hz else 1.0
     positions = [np.asarray(r, dtype=np.float64).ravel() * scale for r in rows]
+    if sampling_rate_hz:
+        longest = max((float(p.max()) for p in positions if p.size), default=0.0)
+        unit_scale, unit_label = time_axis(np.asarray([longest]))
+        factor = float(unit_scale[0] / longest) if longest else 1.0
+        positions = [p * factor for p in positions]
+        if xlabel is None:
+            xlabel = unit_label
     if xlabel is None:
-        xlabel = "time (s)" if sampling_rate_hz else "sample"
+        xlabel = "sample"
 
     if row_conditions is not None and palette is not None:
         color_arg: Any = [palette.get(str(c), GRAY) for c in row_conditions]

@@ -74,10 +74,13 @@ def build_comparisons(
     facet_col, facet_values, facet_noun = resolve_facets(work, facet_by)
 
     stat = config.stats.statistic
+    pairwise_test = config.stats.pairwise_test
+    test_label = "ranksum" if pairwise_test == "ranksum" else stat
 
     def compare(groups: dict[str, FloatArray]) -> pd.DataFrame:
         return pairwise_comparisons(
             groups,
+            test=pairwise_test,
             statistic=stat,
             n_permutations=config.stats.n_permutations,
             alternative=config.stats.alternative,
@@ -90,7 +93,7 @@ def build_comparisons(
         out["metric"] = metric
         out["contrast"] = contrast
         out["strata"] = strata
-        out["test"] = stat
+        out["test"] = test_label
         return out.reindex(columns=COMPARISON_COLUMNS)
 
     blocks: list[pd.DataFrame] = [

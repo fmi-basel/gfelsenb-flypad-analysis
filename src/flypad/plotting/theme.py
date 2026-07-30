@@ -34,9 +34,29 @@ ACCENT = "#D55E00"
 GRAY = "#9AA0A6"
 INK = "#2B2B2B"
 
+#: Wong's colour-blind-safe qualitative palette, ordered for legibility on white
+#: (yellow last — it is the weakest against a light background). Conditions are
+#: coloured from this list first; beyond its length the greedy Lab generator takes over.
+WONG: tuple[str, ...] = (
+    "#0072B2",  # blue
+    "#E69F00",  # orange
+    "#009E73",  # bluish green
+    "#CC79A7",  # reddish purple
+    "#56B4E9",  # sky blue
+    "#D55E00",  # vermillion
+    "#8C6D31",  # brown
+    "#F0E442",  # yellow
+)
+
 THEME: dict[str, Any] = {
     "figure.dpi": 110,
     "savefig.bbox": "tight",
+    # A faint horizontal grid makes box/point values readable without chasing ticks.
+    "axes.grid": True,
+    "axes.grid.axis": "y",
+    "axes.axisbelow": True,
+    "grid.color": "#DFE3E6",
+    "grid.linewidth": 0.7,
     "font.family": "sans-serif",
     "font.sans-serif": ["Helvetica Neue", "Helvetica", "Arial", "DejaVu Sans"],
     "font.size": 11,
@@ -131,14 +151,23 @@ def condition_palette(
     labels: Iterable[str],
     *,
     background: str = "white",
-) -> dict[str, tuple[float, float, float]]:
-    """Stable label → colour map (sorted unique labels → distinguishable colours).
+    sort: bool = True,
+) -> dict[str, Any]:
+    """Stable label → colour map, drawn from the colour-blind-safe :data:`WONG` palette.
 
     Build it once from the full set of condition labels and pass it to every plotting
-    function so a condition keeps the same colour across all panels and figures.
+    function so a condition keeps the same colour across all panels and figures. Beyond
+    ``len(WONG)`` conditions the greedy Lab generator supplies the extra colours. Pass
+    ``sort=False`` to keep the caller's ordering (e.g. experiment condition order)
+    instead of sorting labels alphabetically.
     """
-    unique = sorted(dict.fromkeys(str(label) for label in labels))
-    colors = distinguishable_colors(len(unique), background=background)
+    unique = list(dict.fromkeys(str(label) for label in labels))
+    if sort:
+        unique = sorted(unique)
+    if len(unique) <= len(WONG):
+        colors: list[Any] = list(WONG[: len(unique)])
+    else:
+        colors = list(distinguishable_colors(len(unique), background=background))
     return dict(zip(unique, colors, strict=True))
 
 

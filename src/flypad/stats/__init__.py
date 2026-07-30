@@ -13,6 +13,8 @@ from flypad.stats.distributions import (
 )
 from flypad.stats.grouping import (
     FacetBy,
+    is_two_choice,
+    ordered_condition_labels,
     resolve_facets,
     substrate_facets,
     with_file_labels,
@@ -41,6 +43,7 @@ from flypad.stats.tests import (
     pairwise_comparisons,
     permutation_test,
     permutation_test_ccdf,
+    ranksum_test,
 )
 
 __all__ = [
@@ -66,8 +69,10 @@ __all__ = [
     "fit_poly_with_rsquare",
     "icdf",
     "icdf_linear",
+    "is_two_choice",
     "mark_bad_channels",
     "mark_non_eaters",
+    "ordered_condition_labels",
     "pairwise_comparisons",
     "per_condition_summary",
     "per_fly_summary",
@@ -75,6 +80,7 @@ __all__ = [
     "permutation_test_ccdf",
     "preference_index",
     "quantile",
+    "ranksum_test",
     "resolve_facets",
     "substrate_facets",
     "summarize_experiment",

@@ -10,7 +10,7 @@ across facets. These builders wrap the single-axis plotters (``tilted_boxplot`` 
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 import matplotlib.pyplot as plt
@@ -19,8 +19,15 @@ import numpy.typing as npt
 import pandas as pd
 from matplotlib.lines import Line2D
 
-from flypad.plotting.boxplots import Palette, ci_plot, median_iqr_plot, tilted_boxplot
+from flypad.plotting.boxplots import (
+    Palette,
+    annotate_significance,
+    ci_plot,
+    median_iqr_plot,
+    tilted_boxplot,
+)
 from flypad.plotting.cdf import ccdf_plot
+from flypad.plotting.labels import metric_label
 from flypad.plotting.theme import GRAY, condition_palette, suptitle
 from flypad.plotting.timecourses import shaded_lines
 
@@ -28,6 +35,7 @@ from flypad.plotting.timecourses import shaded_lines
 from flypad.stats.grouping import (
     FacetBy,
     file_facet_label,
+    ordered_condition_labels,
     resolve_facets,
     substrate_facets,
     with_file_labels,
@@ -50,17 +58,34 @@ __all__ = [
 ]
 
 
-def _facet_row(n: int, *, width: float, height: float = 4.0) -> tuple[Any, list[Any]]:
-    """A one-row grid of ``n`` subplots sharing the y-axis."""
-    fig, axes = plt.subplots(1, n, figsize=(width * n, height), sharey=True, squeeze=False)
+def _facet_row(
+    n: int, *, width: float, height: float = 4.0, sharex: bool = False
+) -> tuple[Any, list[Any]]:
+    """A one-row grid of ``n`` subplots sharing the y-axis (and optionally the x-axis)."""
+    fig, axes = plt.subplots(
+        1, n, figsize=(width * n, height), sharey=True, sharex=sharex, squeeze=False
+    )
     return fig, list(axes[0])
 
 
-def _condition_groups(per_fly: pd.DataFrame, metric: str, group_col: str) -> dict[str, FloatArray]:
-    return {
-        str(label): grp[metric].to_numpy(dtype=np.float64)
+def _condition_groups(
+    per_fly: pd.DataFrame,
+    metric: str,
+    group_col: str,
+    order: Sequence[str] | None = None,
+) -> dict[str, FloatArray]:
+    """Metric values per condition, in experiment order (not alphabetical).
+
+    ``order`` pins the sequence — pass the experiment-wide label order so every facet
+    lays its categories out the same way, including facets missing some conditions.
+    """
+    by_label = {
+        str(label): np.asarray(grp[metric].to_numpy(dtype=np.float64))
         for label, grp in per_fly.groupby(group_col, dropna=False)
     }
+    labels = list(order) if order is not None else ordered_condition_labels(per_fly, group_col)
+    empty = np.asarray([], dtype=np.float64)
+    return {label: by_label.get(label, empty) for label in labels if label in by_label or order}
 
 
 def _shared_legend(fig: Any, palette: Palette | None, labels: Sequence[str]) -> None:
@@ -88,17 +113,63 @@ def faceted_boxplot(
     palette: Palette | None = None,
     ylabel: str | None = None,
     noun: str = "substrate",
+    annotations_by_facet: Mapping[str, Sequence[tuple[str, str, float]]] | None = None,
+    yscale: str = "linear",
+    only_significant: bool = False,
+    show_pvalues: bool = False,
 ) -> Any:
-    """Per-condition box plot faceted into one axis per ``facet_col`` value."""
+    """Per-condition box plot faceted into one axis per ``facet_col`` value.
+
+    ``annotations_by_facet`` maps each facet value to its list of
+    ``(label_a, label_b, p_value)`` pairwise comparisons, drawn as significance brackets;
+    with a shared y-axis the brackets are placed from the tallest facet so they align.
+    """
     fig, axes = _facet_row(len(values), width=4.6)
+    order = ordered_condition_labels(per_fly, group_col)
+    drawn: list[tuple[Any, str, dict[str, FloatArray]]] = []
     for i, (ax, val) in enumerate(zip(axes, values, strict=True)):
         subset = per_fly[per_fly[facet_col].astype(str) == val]
-        groups = _condition_groups(subset, metric, group_col)
-        tilted_boxplot(groups, ax=ax, palette=palette, ylabel=ylabel if i == 0 else None)
+        groups = _condition_groups(subset, metric, group_col, order)
+        tilted_boxplot(
+            groups, ax=ax, palette=palette, ylabel=ylabel if i == 0 else None, yscale=yscale
+        )
         ax.set_title(val)
-    suptitle(fig, f"{metric} by {noun}")
+        drawn.append((ax, val, groups))
+    if annotations_by_facet:
+        _annotate_shared(
+            drawn,
+            annotations_by_facet,
+            only_significant=only_significant,
+            show_pvalues=show_pvalues,
+        )
+    suptitle(fig, f"{metric_label(metric)} by {noun}")
     fig.tight_layout(rect=(0, 0, 1, 0.94))
     return fig
+
+
+def _annotate_shared(
+    drawn: Sequence[tuple[Any, str, dict[str, FloatArray]]],
+    annotations_by_facet: Mapping[str, Sequence[tuple[str, str, float]]],
+    *,
+    only_significant: bool = False,
+    show_pvalues: bool = False,
+) -> None:
+    """Draw brackets on sharey facets, anchored to the tallest facet so they line up."""
+    tops = [float(np.nanmax(a)) for _ax, _v, groups in drawn for a in groups.values() if a.size]
+    if not tops:
+        return
+    data_top = max(tops)
+    for ax, val, groups in drawn:
+        pairs = annotations_by_facet.get(val)
+        if pairs:
+            annotate_significance(
+                ax,
+                pairs,
+                {label: i for i, label in enumerate(groups)},
+                data_top=data_top,
+                only_significant=only_significant,
+                show_pvalues=show_pvalues,
+            )
 
 
 def faceted_ccdf(
@@ -112,16 +183,21 @@ def faceted_ccdf(
     xlabel: str | None = None,
     noun: str = "substrate",
 ) -> Any:
-    """Per-condition CCDF faceted into one axis per ``facet_col`` value (shared legend)."""
-    fig, axes = _facet_row(len(values), width=5.0)
-    labels = sorted(_condition_groups(per_fly, metric, group_col))
+    """Per-condition CCDF faceted into one axis per ``facet_col`` value (shared legend).
+
+    The x-axis is shared across facets: with independent ranges two panels can look alike
+    while covering very different value spans.
+    """
+    fig, axes = _facet_row(len(values), width=5.0, sharex=True)
+    order = ordered_condition_labels(per_fly, group_col)
+    labels = list(_condition_groups(per_fly, metric, group_col, order))
     for ax, val in zip(axes, values, strict=True):
         subset = per_fly[per_fly[facet_col].astype(str) == val]
-        groups = _condition_groups(subset, metric, group_col)
+        groups = _condition_groups(subset, metric, group_col, order)
         ccdf_plot(groups, ax=ax, palette=palette, xlabel=xlabel or metric, legend=False)
         ax.set_title(val)
     _shared_legend(fig, palette, labels)
-    suptitle(fig, f"{metric} CCDF by {noun}")
+    suptitle(fig, f"{metric_label(metric)} — CCDF by {noun}")
     fig.tight_layout(rect=(0, 0.06, 1, 0.94))
     return fig
 
@@ -139,16 +215,17 @@ def faceted_timecourse(
 ) -> Any:
     """Cumulative sip time course faceted into one axis per ``facet_col`` value."""
     fig, axes = _facet_row(len(values), width=6.0, height=3.4)
-    labels = sorted(str(x) for x in events[group_col].dropna().unique())
+    labels = ordered_condition_labels(events, group_col)
     for ax, val in zip(axes, values, strict=True):
         subset = events[events[facet_col].astype(str) == val]
         series = cumulative_timecourse_by_condition(
             subset, n_samples, group_col=group_col, sampling_rate_hz=sampling_rate_hz
         )
-        shaded_lines(series, ax=ax, palette=palette, legend=False)
+        ordered = {lbl: series[lbl] for lbl in labels if lbl in series}
+        shaded_lines(ordered, ax=ax, palette=palette, legend=False)
         ax.set_title(val)
     _shared_legend(fig, palette, labels)
-    suptitle(fig, f"cumulative sips by {noun}")
+    suptitle(fig, f"Cumulative sips by {noun}")
     fig.tight_layout(rect=(0, 0.06, 1, 0.92))
     return fig
 
@@ -165,32 +242,51 @@ def faceted_dashboard(
     palette: Palette | None = None,
     noun: str = "substrate",
     title: str | None = None,
+    annotations_by_facet: Mapping[str, Sequence[tuple[str, str, float]]] | None = None,
+    yscale: str = "linear",
+    only_significant: bool = False,
+    show_pvalues: bool = False,
 ) -> Any:
     """Standalone dashboard with one row of panels per facet (top → bottom).
 
     Each row mirrors :func:`~flypad.plotting.cdf.standalone_dashboard`: the per-fly box
     plot, a central-tendency summary (``central`` = ``"median"`` → median+IQR, ``"mean"``
     → mean+95% CI), and the metric's CCDF. The leftmost panel of each row is titled with
-    the facet value; condition colours are shared across every row.
+    the facet value; condition colours are shared across every row. Each *column* shares a
+    y-axis so rows are directly comparable, the legend is drawn once, and
+    ``annotations_by_facet`` puts significance brackets on each row's box panel.
     """
+    order = ordered_condition_labels(per_fly, group_col)
     if palette is None:
-        palette = condition_palette(_condition_groups(per_fly, metric, group_col).keys())
+        palette = condition_palette(order, sort=False)
+    ann = annotations_by_facet or {}
     n = len(values)
-    fig, axes = plt.subplots(n, 3, figsize=(13.5, 4.0 * n), squeeze=False)
+    # sharey="col": rows are stacked for comparison, so each column must share a scale.
+    fig, axes = plt.subplots(n, 3, figsize=(13.5, 4.0 * n), squeeze=False, sharey="col")
     central_title = "mean ± 95% CI" if central == "mean" else "median ± IQR"
+    label = metric_label(metric)
+    box_rows: list[tuple[Any, str, dict[str, FloatArray]]] = []
     for r, val in enumerate(values):
         subset = per_fly[per_fly[facet_col].astype(str) == val]
-        groups = _condition_groups(subset, metric, group_col)
-        tilted_boxplot(groups, ax=axes[r][0], palette=palette, tilt_deg=tilt_deg, ylabel=metric)
+        groups = _condition_groups(subset, metric, group_col, order)
+        tilted_boxplot(
+            groups, ax=axes[r][0], palette=palette, tilt_deg=tilt_deg, ylabel=label, yscale=yscale
+        )
         axes[r][0].set_title(val)
+        box_rows.append((axes[r][0], val, groups))
         if central == "mean":
             ci_plot(groups, ax=axes[r][1])
         else:
             median_iqr_plot(groups, ax=axes[r][1])
         axes[r][1].set_title(central_title)
-        axes[r][1].set_ylabel(metric)
-        ccdf_plot(groups, ax=axes[r][2], palette=palette, xlabel=metric)
+        axes[r][1].set_ylabel(label)
+        # one legend for the whole figure: the CCDF panels all share the palette
+        ccdf_plot(groups, ax=axes[r][2], palette=palette, xlabel=label, legend=r == 0)
         axes[r][2].set_title("CCDF")
-    suptitle(fig, title or f"{metric} dashboard by {noun}")
+    if ann:
+        _annotate_shared(
+            box_rows, ann, only_significant=only_significant, show_pvalues=show_pvalues
+        )
+    suptitle(fig, title or f"{label} dashboard by {noun}")
     fig.tight_layout(rect=(0, 0, 1, 1 - 0.4 / (4.0 * n)))
     return fig

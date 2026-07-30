@@ -57,7 +57,9 @@ class DetectionResult:
     """Raw per-file detection output plus the channel→condition map.
 
     ``spill_by_file`` / ``zero_by_file`` hold the per-channel spill (saturated-sample)
-    and zero-sample fractions used for spill/unconnected channel QC.
+    and zero-sample fractions used for spill/unconnected channel QC. ``n_samples`` is the
+    *actual* recorded length (the shortest file, as MATLAB's ``Events.Dur``), which can be
+    shorter than the configured ``acquisition.duration_samples``.
     """
 
     files: list[Path]
@@ -67,6 +69,7 @@ class DetectionResult:
     channel_map: pd.DataFrame
     spill_by_file: list[FloatArray]
     zero_by_file: list[FloatArray]
+    n_samples: int = 0
 
 
 def _emit(progress: Progress | None, message: str) -> None:
@@ -154,10 +157,12 @@ def detect_experiment(
     bursts_by_file: list[list[ChannelBursts]] = []
     spill_by_file: list[FloatArray] = []
     zero_by_file: list[FloatArray] = []
+    lengths: list[int] = []
     for i, path in enumerate(files, 1):
         _emit(progress, f"detect [{i}/{len(files)}] {path.name}")
         recording = load_recording(path, config)
         raw = np.asarray(recording.capacitance.values)
+        lengths.append(int(raw.shape[0]))
         spill_by_file.append(
             saturation_fraction(raw, config.quality_control.spill_saturation_value)
         )
@@ -178,6 +183,7 @@ def detect_experiment(
         channel_map=channel_map,
         spill_by_file=spill_by_file,
         zero_by_file=zero_by_file,
+        n_samples=min(lengths) if lengths else 0,
     )
 
 
@@ -306,6 +312,33 @@ def _relabel_conditions(df: pd.DataFrame, column: str, mapping: dict[str, str]) 
     return out
 
 
+def _condition_pairs(
+    comparisons: pd.DataFrame, metric: str, strata: str, labels_map: dict[str, str]
+) -> list[tuple[str, str, float]]:
+    """Condition ``(a, b, p_adjusted)`` triples for one ``strata`` of the comparisons table.
+
+    Labels pass through the plot display rename so brackets match the axis tick labels.
+    """
+    sub = comparisons[
+        (comparisons["metric"] == metric)
+        & (comparisons["contrast"] == "condition")
+        & (comparisons["strata"].astype(str) == str(strata))
+    ]
+
+    def disp(x: object) -> str:
+        return labels_map.get(str(x), str(x))
+
+    return [(disp(r.group_a), disp(r.group_b), float(r.p_adjusted)) for r in sub.itertuples()]
+
+
+def _slug(text: str) -> str:
+    """Filesystem-safe stem fragment (``2026-07-09 10:01:52`` -> ``2026-07-09_10-01-52``)."""
+    cleaned = "".join(c if c.isalnum() else ("_" if c == " " else "-") for c in text.strip())
+    while "--" in cleaned:
+        cleaned = cleaned.replace("--", "-")
+    return cleaned.strip("-_") or "file"
+
+
 #: Figure kinds renderable by :func:`render_figures`.
 FIGURE_KINDS = ("dashboard", "boxplot", "cdf", "raster", "timecourse", "substrate")
 
@@ -318,9 +351,18 @@ def render_figures(
     *,
     kinds: Sequence[str] = FIGURE_KINDS,
     metric: str = "n_sips",
+    comparisons: pd.DataFrame | None = None,
+    n_samples: int | None = None,
     progress: Progress | None = None,
 ) -> list[Path]:
-    """Render the requested figure kinds into ``out_dir/figures``."""
+    """Render the requested figure kinds into ``out_dir/figures``.
+
+    When ``comparisons`` (from :func:`flypad.stats.build_comparisons`) is supplied and
+    ``config.plotting.annotate_stats`` is on, the box plot's condition comparisons are
+    drawn as significance brackets. ``n_samples`` is the recording length used for the
+    time-course axis; pass the *measured* length (``DetectionResult.n_samples``) so the
+    axis ends with the data rather than at a longer configured duration.
+    """
     from flypad.plotting import (
         ccdf_plot,
         condition_palette,
@@ -328,6 +370,7 @@ def render_figures(
         faceted_ccdf,
         faceted_dashboard,
         faceted_timecourse,
+        metric_label,
         raster_plot,
         resolve_facets,
         save_figure,
@@ -338,7 +381,11 @@ def render_figures(
         tilted_boxplot,
         with_file_labels,
     )
-    from flypad.stats import cumulative_timecourse_by_condition
+    from flypad.stats import (
+        cumulative_timecourse_by_condition,
+        is_two_choice,
+        ordered_condition_labels,
+    )
 
     set_theme()
     figdir = Path(out_dir).expanduser() / "figures"
@@ -356,10 +403,15 @@ def render_figures(
         per_fly = _relabel_conditions(per_fly, group_col, labels_map)
         if events is not None:
             events = _relabel_conditions(events, group_col, labels_map)
-    groups = {
+    # Conditions are laid out in experiment order (from the condition number), not
+    # alphabetically, so a starvation series reads in its intended sequence.
+    order = ordered_condition_labels(kept, group_col)
+    by_label = {
         str(label): grp[metric].to_numpy() for label, grp in kept.groupby(group_col, dropna=False)
     }
-    palette = condition_palette(groups.keys())
+    groups = {label: by_label[label] for label in order if label in by_label}
+    palette = condition_palette(groups.keys(), sort=False)
+    ylabel = metric_label(metric)
     # Box plot / CCDF / time course are split into one axis per facet as configured by
     # ``plotting.facet_by`` (substrate | file | none); single-axis when <2 facets exist.
     if config.plotting.facet_by == "file":
@@ -367,7 +419,30 @@ def render_figures(
         if events is not None:
             events = with_file_labels(events)
     facet_col, facet_values, facet_noun = resolve_facets(kept, config.plotting.facet_by)
+    comp = (
+        comparisons
+        if config.plotting.annotate_stats and comparisons is not None and not comparisons.empty
+        else None
+    )
+    # Condition-comparison significance brackets for the box plot / dashboard box panel.
+    box_pairs = None if comp is None else _condition_pairs(comp, metric, "all", labels_map)
+    box_pairs_by_facet = (
+        {v: _condition_pairs(comp, metric, v, labels_map) for v in facet_values}
+        if comp is not None and facet_col is not None
+        else None
+    )
+    # Time-course length: prefer the measured recording, then the events, then the config
+    # (which may be a longer nominal duration and would pad the axis with a flat tail).
+    if n_samples is None and events is not None and not events.empty:
+        n_samples = int(events["onset"].max()) + 1
+    duration = n_samples or config.acquisition.duration_samples
     written: list[Path] = []
+    # Bracket / scale styling shared by the box plot and the dashboard's box panel.
+    box_style: dict[str, Any] = {
+        "yscale": config.plotting.y_scale,
+        "only_significant": config.plotting.annotate_only_significant,
+        "show_pvalues": config.plotting.annotate_p_values,
+    }
 
     def save(fig: object, stem: str) -> None:
         _emit(progress, f"figure {stem}")
@@ -384,9 +459,11 @@ def render_figures(
                 palette=palette,
                 central="median",
                 noun=facet_noun,
+                annotations_by_facet=box_pairs_by_facet,
+                **box_style,
             )
         else:
-            dash = standalone_dashboard(kept, metric, central="median")
+            dash = standalone_dashboard(kept, metric, central="median", annotations=box_pairs)
         save(dash, f"dashboard_{metric}")
     if "boxplot" in kinds:
         if facet_col is not None:
@@ -397,11 +474,15 @@ def render_figures(
                 values=facet_values,
                 group_col=group_col,
                 palette=palette,
-                ylabel=metric,
+                ylabel=ylabel,
                 noun=facet_noun,
+                annotations_by_facet=box_pairs_by_facet,
+                **box_style,
             )
         else:
-            fig = tilted_boxplot(groups, palette=palette, ylabel=metric).figure
+            fig = tilted_boxplot(
+                groups, palette=palette, ylabel=ylabel, annotations=box_pairs, **box_style
+            ).figure
         save(fig, f"boxplot_{metric}")
     if "cdf" in kinds:
         if facet_col is not None:
@@ -412,19 +493,19 @@ def render_figures(
                 values=facet_values,
                 group_col=group_col,
                 palette=palette,
-                xlabel=metric,
+                xlabel=ylabel,
                 noun=facet_noun,
             )
         else:
-            fig = ccdf_plot(groups, palette=palette, xlabel=metric).figure
+            fig = ccdf_plot(groups, palette=palette, xlabel=ylabel).figure
         save(fig, f"ccdf_{metric}")
-    if "substrate" in kinds and "substrate_side" in kept.columns:
-        save(substrate_comparison(kept, metric, ylabel=metric).figure, f"substrate_{metric}")
+    if "substrate" in kinds and is_two_choice(kept):
+        save(substrate_comparison(kept, metric, ylabel=ylabel).figure, f"substrate_{metric}")
     if "timecourse" in kinds and events is not None and not events.empty:
         if facet_col is not None:
             fig = faceted_timecourse(
                 events,
-                config.acquisition.duration_samples,
+                duration,
                 facet_col=facet_col,
                 values=facet_values,
                 group_col=group_col,
@@ -435,28 +516,35 @@ def render_figures(
         else:
             series = cumulative_timecourse_by_condition(
                 events,
-                config.acquisition.duration_samples,
+                duration,
                 group_col=group_col,
                 sampling_rate_hz=rate,
             )
-            fig = shaded_lines(series, palette=palette).figure
+            ordered = {k: series[k] for k in order if k in series}
+            fig = shaded_lines(ordered, palette=palette, direct_labels=True).figure
         save(fig, "timecourse")
     if "raster" in kinds and events is not None and not events.empty:
-        # Full plate of the first file: every channel (silent or QC-removed too).
-        fi0 = int(events["file_index"].min())
-        first = events[events["file_index"] == fi0]
+        # One full-plate raster per recording, titled and named by its timestamp: a raster
+        # only ever shows a single plate, so a combined figure would misrepresent the run.
+        ev = events if "file_label" in events.columns else with_file_labels(events)
         channels = list(range(config.hardware.n_channels))
-        onsets_by_ch = {int(c): g["onset"].to_numpy() for c, g in first.groupby("channel")}
-        rows = [onsets_by_ch.get(c, []) for c in channels]
-        pf0 = per_fly[per_fly["file_index"] == fi0].drop_duplicates("channel").set_index("channel")
-        row_conditions = (
-            [str(pf0.loc[c, group_col]) if c in pf0.index else "" for c in channels]
-            if group_col in pf0.columns
-            else None
-        )
-        raster = raster_plot(
-            rows, row_conditions=row_conditions, palette=palette, sampling_rate_hz=rate
-        )
-        save(raster.figure, "raster")
+        for fi in sorted(ev["file_index"].unique()):
+            one = ev[ev["file_index"] == fi]
+            label = str(one["file_label"].iloc[0]) if "file_label" in one.columns else f"file {fi}"
+            onsets_by_ch = {int(c): g["onset"].to_numpy() for c, g in one.groupby("channel")}
+            rows = [onsets_by_ch.get(c, []) for c in channels]
+            pf0 = (
+                per_fly[per_fly["file_index"] == fi].drop_duplicates("channel").set_index("channel")
+            )
+            row_conditions = (
+                [str(pf0.loc[c, group_col]) if c in pf0.index else "" for c in channels]
+                if group_col in pf0.columns
+                else None
+            )
+            raster = raster_plot(
+                rows, row_conditions=row_conditions, palette=palette, sampling_rate_hz=rate
+            )
+            raster.set_title(label)
+            save(raster.figure, f"raster_{_slug(label)}")
 
     return written
