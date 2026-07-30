@@ -1,5 +1,6 @@
 """Statistics: summaries, distributions, and significance tests (design §10, M5)."""
 
+from flypad.stats.comparisons import COMPARISON_COLUMNS, build_comparisons
 from flypad.stats.distributions import (
     ccdf,
     ccdf_linear,
@@ -9,6 +10,12 @@ from flypad.stats.distributions import (
     icdf,
     icdf_linear,
     quantile,
+)
+from flypad.stats.grouping import (
+    FacetBy,
+    resolve_facets,
+    substrate_facets,
+    with_file_labels,
 )
 from flypad.stats.summaries import (
     METRIC_COLUMNS,
@@ -37,12 +44,15 @@ from flypad.stats.tests import (
 )
 
 __all__ = [
+    "COMPARISON_COLUMNS",
     "METRIC_COLUMNS",
     "ExperimentSummary",
+    "FacetBy",
     "PermutationResult",
     "PolyFit",
     "adjust_pvalues",
     "apply_qc_removal",
+    "build_comparisons",
     "build_event_table",
     "ccdf",
     "ccdf_linear",
@@ -65,5 +75,8 @@ __all__ = [
     "permutation_test_ccdf",
     "preference_index",
     "quantile",
+    "resolve_facets",
+    "substrate_facets",
     "summarize_experiment",
+    "with_file_labels",
 ]

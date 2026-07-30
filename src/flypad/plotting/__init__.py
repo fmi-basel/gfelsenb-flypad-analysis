@@ -13,6 +13,15 @@ from flypad.plotting.boxplots import (
 )
 from flypad.plotting.cdf import ccdf_plot, cdf_plot, standalone_dashboard
 from flypad.plotting.export import save_figure
+from flypad.plotting.facets import (
+    faceted_boxplot,
+    faceted_ccdf,
+    faceted_dashboard,
+    faceted_timecourse,
+    resolve_facets,
+    substrate_facets,
+    with_file_labels,
+)
 from flypad.plotting.rasters import raster_plot
 from flypad.plotting.theme import (
     condition_palette,
@@ -36,19 +45,26 @@ __all__ = [
     "condition_palette",
     "cumulative_timecourse_plot",
     "distinguishable_colors",
+    "faceted_boxplot",
+    "faceted_ccdf",
+    "faceted_dashboard",
+    "faceted_timecourse",
     "jbfill",
     "median_iqr_plot",
     "my_errorbar",
     "plot_spread",
     "raster_plot",
+    "resolve_facets",
     "save_figure",
     "set_theme",
     "shaded_lines",
     "shaded_plot",
     "standalone_dashboard",
     "substrate_comparison",
+    "substrate_facets",
     "suptitle",
     "theme_context",
     "tight_subplot",
     "tilted_boxplot",
+    "with_file_labels",
 ]

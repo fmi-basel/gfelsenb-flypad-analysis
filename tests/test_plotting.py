@@ -15,16 +15,23 @@ from flypad.plotting import (
     condition_palette,
     cumulative_timecourse_plot,
     distinguishable_colors,
+    faceted_boxplot,
+    faceted_ccdf,
+    faceted_dashboard,
+    faceted_timecourse,
     jbfill,
     raster_plot,
+    resolve_facets,
     save_figure,
     shaded_lines,
     shaded_plot,
     standalone_dashboard,
     substrate_comparison,
+    substrate_facets,
     theme_context,
     tight_subplot,
     tilted_boxplot,
+    with_file_labels,
 )
 from flypad.plotting.theme import _srgb_to_lab
 
@@ -95,7 +102,9 @@ def test_tilted_boxplot_draws_boxes_and_points() -> None:
     ax = tilted_boxplot(_groups(), ylabel="n_sips")
     assert len(ax.patches) == 3  # one box per group
     assert len(ax.collections) >= 3  # jittered point clouds
-    assert [t.get_text() for t in ax.get_xticklabels()] == ["fed", "starved", "refed"]
+    labels = [t.get_text() for t in ax.get_xticklabels()]
+    assert [lbl.split("\n")[0] for lbl in labels] == ["fed", "starved", "refed"]
+    assert all(lbl.endswith("n=20") for lbl in labels)  # count folded into the tick label
 
 
 def test_tilted_boxplot_skips_empty_groups() -> None:
@@ -233,8 +242,14 @@ def test_tilted_boxplot_tilt_and_n_annotation() -> None:
     groups = {"a": [1.0, 2, 3, 4], "b": [2.0, 3, 4, 5]}
     ax = tilted_boxplot(groups, tilt_deg=12.0, show_n=True)
     assert len(ax.patches) == 2  # boxes still drawn when tilted
-    texts = [t.get_text() for t in ax.texts]
-    assert "n=4" in texts  # N annotation present
+    labels = [t.get_text() for t in ax.get_xticklabels()]
+    assert any("n=4" in lbl for lbl in labels)  # N folded into the tick label
+
+
+def test_tilted_boxplot_show_n_false_omits_count() -> None:
+    ax = tilted_boxplot({"a": [1.0, 2, 3], "b": [4.0, 5]}, show_n=False)
+    labels = [t.get_text() for t in ax.get_xticklabels()]
+    assert labels == ["a", "b"]  # no "n=" appended
 
 
 def test_tilted_boxplot_palette_colors_boxes() -> None:
@@ -278,3 +293,213 @@ def test_raster_colored_by_condition() -> None:
     ax = raster_plot(rows, row_conditions=["fed", "starved", "fed"], palette=palette)
     assert ax.get_legend() is not None  # one entry per condition present
     assert len(ax.get_legend().get_texts()) == 2
+
+
+# --------------------------------------------------------------------------- #
+# substrate faceting: one axis per substrate for box plot / CCDF / time course
+# --------------------------------------------------------------------------- #
+def _per_fly_two_substrates() -> pd.DataFrame:
+    rng = np.random.default_rng(2)
+    rows = []
+    for label in ("sucrose", "yeast"):
+        for cond in ("fed", "starved"):
+            for _ in range(12):
+                rows.append(
+                    {
+                        "condition_label": cond,
+                        "substrate_label": label,
+                        "substrate_side": "left" if label == "sucrose" else "right",
+                        "n_sips": float(rng.integers(0, 200)),
+                    }
+                )
+    return pd.DataFrame(rows)
+
+
+def _events_two_substrates() -> pd.DataFrame:
+    rng = np.random.default_rng(3)
+    rows = []
+    for fi, label in enumerate(("sucrose", "yeast")):
+        for ch, cond in enumerate(("fed", "starved")):
+            for onset in rng.integers(0, 1000, size=10):
+                rows.append(
+                    {
+                        "file_index": fi,
+                        "channel": ch,
+                        "condition_label": cond,
+                        "substrate_label": label,
+                        "onset": int(onset),
+                    }
+                )
+    return pd.DataFrame(rows)
+
+
+def test_substrate_facets_prefers_labels() -> None:
+    col, values = substrate_facets(_per_fly_two_substrates())
+    assert col == "substrate_label"
+    assert values == ["sucrose", "yeast"]
+
+
+def test_substrate_facets_falls_back_to_side_when_unlabeled() -> None:
+    per_fly = pd.DataFrame(
+        {
+            "condition_label": ["a", "a"],
+            "substrate_label": ["", ""],
+            "substrate_side": ["left", "right"],
+            "n_sips": [1.0, 2.0],
+        }
+    )
+    col, values = substrate_facets(per_fly)
+    assert col == "substrate_side"
+    assert values == ["left", "right"]
+
+
+def test_substrate_facets_none_for_single_substrate() -> None:
+    per_fly = pd.DataFrame(
+        {
+            "condition_label": ["a", "b"],
+            "substrate_label": ["sucrose", "sucrose"],
+            "substrate_side": ["left", "left"],
+            "n_sips": [1.0, 2.0],
+        }
+    )
+    assert substrate_facets(per_fly) == (None, [])
+
+
+def test_faceted_boxplot_one_axis_per_substrate() -> None:
+    per_fly = _per_fly_two_substrates()
+    palette = condition_palette(per_fly["condition_label"])
+    fig = faceted_boxplot(
+        per_fly,
+        "n_sips",
+        facet_col="substrate_label",
+        values=["sucrose", "yeast"],
+        palette=palette,
+        ylabel="n_sips",
+    )
+    assert len(fig.axes) == 2
+    assert [ax.get_title() for ax in fig.axes] == ["sucrose", "yeast"]
+    # 2 conditions -> 2 boxes on each substrate axis
+    assert all(len(ax.patches) == 2 for ax in fig.axes)
+
+
+def test_faceted_ccdf_shares_one_legend() -> None:
+    per_fly = _per_fly_two_substrates()
+    palette = condition_palette(per_fly["condition_label"])
+    fig = faceted_ccdf(
+        per_fly,
+        "n_sips",
+        facet_col="substrate_label",
+        values=["sucrose", "yeast"],
+        palette=palette,
+    )
+    assert len(fig.axes) == 2
+    assert fig.legends and len(fig.legends[0].get_texts()) == 2  # one shared legend, 2 conditions
+    assert all(ax.get_legend() is None for ax in fig.axes)  # no per-axis legends
+
+
+def test_faceted_timecourse_one_axis_per_substrate() -> None:
+    events = _events_two_substrates()
+    palette = condition_palette(events["condition_label"])
+    fig = faceted_timecourse(
+        events,
+        1000,
+        facet_col="substrate_label",
+        values=["sucrose", "yeast"],
+        sampling_rate_hz=100,
+        palette=palette,
+    )
+    assert len(fig.axes) == 2
+    assert [ax.get_title() for ax in fig.axes] == ["sucrose", "yeast"]
+    assert fig.legends and len(fig.legends[0].get_texts()) == 2
+
+
+# --------------------------------------------------------------------------- #
+# file / timestamp faceting: one axis per input recording
+# --------------------------------------------------------------------------- #
+def _per_fly_two_files() -> pd.DataFrame:
+    rng = np.random.default_rng(4)
+    names = {
+        0: "CapacitanceData_C01_01_96_2026-07-09T10_01_52.333+02_00",
+        1: "CapacitanceData_C01_01_96_2026-07-09T15_43_50.831+02_00",
+    }
+    rows = []
+    for fi in (0, 1):
+        for cond in ("fed", "starved"):
+            for _ in range(10):
+                rows.append(
+                    {
+                        "file_index": fi,
+                        "file_name": names[fi],
+                        "condition_label": cond,
+                        "n_sips": float(rng.integers(0, 200)),
+                    }
+                )
+    return pd.DataFrame(rows)
+
+
+def test_with_file_labels_uses_timestamp() -> None:
+    out = with_file_labels(_per_fly_two_files())
+    assert set(out["file_label"]) == {"2026-07-09 10:01:52", "2026-07-09 15:43:50"}
+
+
+def test_with_file_labels_noop_without_file_index() -> None:
+    df = pd.DataFrame({"condition_label": ["a"], "n_sips": [1.0]})
+    assert with_file_labels(df) is df
+
+
+def test_resolve_facets_file_orders_by_index() -> None:
+    col, values, noun = resolve_facets(_per_fly_two_files(), "file")
+    assert col == "file_label" and noun == "file"
+    assert values == ["2026-07-09 10:01:52", "2026-07-09 15:43:50"]  # chronological
+
+
+def test_resolve_facets_none_disables() -> None:
+    assert resolve_facets(_per_fly_two_substrates(), "none") == (None, [], "")
+
+
+def test_resolve_facets_single_file_is_single_axis() -> None:
+    one = _per_fly_two_files()
+    one = one[one["file_index"] == 0]
+    assert resolve_facets(one, "file")[0] is None  # only one file -> no faceting
+
+
+def test_faceted_boxplot_by_file_titled_with_timestamp() -> None:
+    per_fly = with_file_labels(_per_fly_two_files())
+    col, values, noun = resolve_facets(per_fly, "file")
+    palette = condition_palette(per_fly["condition_label"])
+    fig = faceted_boxplot(
+        per_fly, "n_sips", facet_col=col, values=values, palette=palette, noun=noun
+    )
+    assert [ax.get_title() for ax in fig.axes] == ["2026-07-09 10:01:52", "2026-07-09 15:43:50"]
+    assert fig._suptitle.get_text() == "n_sips by file"
+
+
+def test_faceted_dashboard_row_per_facet() -> None:
+    per_fly = _per_fly_two_substrates()
+    palette = condition_palette(per_fly["condition_label"])
+    fig = faceted_dashboard(
+        per_fly,
+        "n_sips",
+        facet_col="substrate_label",
+        values=["sucrose", "yeast"],
+        palette=palette,
+        central="median",
+    )
+    assert len(fig.axes) == 6  # 2 facet rows x 3 panels
+    # leftmost panel of each row is titled with the facet value; right column is the CCDF
+    assert fig.axes[0].get_title() == "sucrose"
+    assert fig.axes[3].get_title() == "yeast"
+    assert fig.axes[2].get_title() == "CCDF" and fig.axes[5].get_title() == "CCDF"
+    assert fig._suptitle.get_text() == "n_sips dashboard by substrate"
+
+
+def test_faceted_dashboard_by_file_mean_variant() -> None:
+    per_fly = with_file_labels(_per_fly_two_files())
+    col, values, noun = resolve_facets(per_fly, "file")
+    fig = faceted_dashboard(
+        per_fly, "n_sips", facet_col=col, values=values, central="mean", noun=noun
+    )
+    assert len(fig.axes) == 6
+    assert fig.axes[0].get_title() == "2026-07-09 10:01:52"
+    assert fig.axes[1].get_title() == "mean ± 95% CI"
+    assert fig._suptitle.get_text() == "n_sips dashboard by file"

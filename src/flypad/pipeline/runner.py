@@ -29,10 +29,12 @@ from flypad.detect.run import detect_recording
 from flypad.io.discovery import find_capacitance_files
 from flypad.postprocess.bursts import ChannelBursts, detect_feeding_bursts
 from flypad.postprocess.metadata import (
+    apply_label_overrides,
     channel_condition_map_for_dir,
     channel_map_from_filenames,
 )
 from flypad.postprocess.quality import saturation_fraction, zero_fraction
+from flypad.stats.comparisons import build_comparisons
 from flypad.stats.summaries import (
     apply_qc_removal,
     build_event_table,
@@ -46,7 +48,7 @@ Progress = Callable[[str], None]
 FloatArray = npt.NDArray[np.float64]
 
 #: Tables written to a results directory; preferred read order for re-loading.
-TABLE_NAMES = ("events", "per_fly", "per_condition")
+TABLE_NAMES = ("events", "per_fly", "per_condition", "comparisons")
 _TABLE_FORMATS = ("parquet", "csv")
 
 
@@ -102,6 +104,18 @@ def _default_channel_map(files: Sequence[Path], config: Config) -> pd.DataFrame:
 def _resolve_channel_map(
     data_dir: str | Path, files: Sequence[Path], config: Config
 ) -> pd.DataFrame:
+    """Discover the channel→condition map, then apply the config label overrides."""
+    channel_map = _discover_channel_map(data_dir, files, config)
+    return apply_label_overrides(
+        channel_map,
+        conditions=config.metadata.conditions,
+        substrates=config.metadata.substrates,
+    )
+
+
+def _discover_channel_map(
+    data_dir: str | Path, files: Sequence[Path], config: Config
+) -> pd.DataFrame:
     try:
         return channel_condition_map_for_dir(
             data_dir,
@@ -130,6 +144,7 @@ def detect_experiment(
     progress: Progress | None = None,
 ) -> DetectionResult:
     """Discover recordings and run detection + feeding-burst grouping on each."""
+    data_dir = Path(data_dir).expanduser()
     files = find_capacitance_files(data_dir)
     if not files:
         raise FileNotFoundError(f"no CapacitanceData* files in {data_dir}")
@@ -171,7 +186,8 @@ def build_tables(detection: DetectionResult, config: Config) -> dict[str, pd.Dat
 
     ``per_fly`` keeps every channel, carrying the ``non_eater`` / ``spill`` /
     ``unconnected`` QC flags plus the ``spill_fraction`` / ``zero_fraction`` diagnostics;
-    ``per_condition`` aggregates only the kept (non-removed) flies.
+    ``per_condition`` aggregates only the kept (non-removed) flies, and ``comparisons``
+    holds the pairwise permutation tests (faceted per ``plotting.facet_by``).
     """
     rate = config.hardware.sampling_rate_hz
     events = build_event_table(
@@ -190,7 +206,13 @@ def build_tables(detection: DetectionResult, config: Config) -> dict[str, pd.Dat
     per_fly = mark_bad_channels(per_fly, config.quality_control)
     kept = apply_qc_removal(per_fly)
     per_condition = per_condition_summary(kept, ci_level=config.stats.ci_level)
-    return {"events": events, "per_fly": per_fly, "per_condition": per_condition}
+    comparisons = build_comparisons(kept, config)
+    return {
+        "events": events,
+        "per_fly": per_fly,
+        "per_condition": per_condition,
+        "comparisons": comparisons,
+    }
 
 
 def write_tables(
@@ -200,7 +222,7 @@ def write_tables(
     formats: Sequence[str] = ("parquet", "csv"),
 ) -> list[Path]:
     """Write each table in the requested formats (only ``parquet``/``csv`` apply)."""
-    out = Path(out_dir)
+    out = Path(out_dir).expanduser()
     out.mkdir(parents=True, exist_ok=True)
     use = [f for f in formats if f in _TABLE_FORMATS] or ["csv"]
     written: list[Path] = []
@@ -234,7 +256,7 @@ def write_provenance(
 
     Together these make any results directory self-describing and reproducible.
     """
-    out = Path(out_dir)
+    out = Path(out_dir).expanduser()
     out.mkdir(parents=True, exist_ok=True)
     info: dict[str, Any] = {
         "flypad_version": __version__,
@@ -258,7 +280,7 @@ def write_provenance(
 
 def read_table(results_dir: str | Path, name: str) -> pd.DataFrame:
     """Read a saved table by name, preferring parquet over csv."""
-    out = Path(results_dir)
+    out = Path(results_dir).expanduser()
     for fmt in _TABLE_FORMATS:
         path = out / f"{name}.{fmt}"
         if path.exists():
@@ -268,6 +290,20 @@ def read_table(results_dir: str | Path, name: str) -> pd.DataFrame:
 
 def _kept(per_fly: pd.DataFrame) -> pd.DataFrame:
     return apply_qc_removal(per_fly)
+
+
+def _relabel_conditions(df: pd.DataFrame, column: str, mapping: dict[str, str]) -> pd.DataFrame:
+    """Return a copy of ``df`` with ``column`` values remapped via ``mapping``.
+
+    Values absent from ``mapping`` are kept as-is (matched on their string form, so an
+    integer ``condition`` column can be renamed too). Used for the plot-only
+    ``config.plotting.condition_labels`` display rename.
+    """
+    if not mapping or column not in df.columns:
+        return df
+    out = df.copy()
+    out[column] = out[column].map(lambda v: mapping.get(str(v), v))
+    return out
 
 
 #: Figure kinds renderable by :func:`render_figures`.
@@ -288,18 +324,24 @@ def render_figures(
     from flypad.plotting import (
         ccdf_plot,
         condition_palette,
+        faceted_boxplot,
+        faceted_ccdf,
+        faceted_dashboard,
+        faceted_timecourse,
         raster_plot,
+        resolve_facets,
         save_figure,
         set_theme,
         shaded_lines,
         standalone_dashboard,
         substrate_comparison,
         tilted_boxplot,
+        with_file_labels,
     )
     from flypad.stats import cumulative_timecourse_by_condition
 
     set_theme()
-    figdir = Path(out_dir) / "figures"
+    figdir = Path(out_dir).expanduser() / "figures"
     figdir.mkdir(parents=True, exist_ok=True)
     vector = config.plotting.vector_format
     formats = ("png",) if vector == "none" else ("png", vector)
@@ -307,10 +349,24 @@ def render_figures(
     rate = config.hardware.sampling_rate_hz
     kept = _kept(per_fly)
     group_col = "condition_label" if "condition_label" in kept.columns else "condition"
+    # Presentation-only condition rename (plots keep display names; tables are untouched).
+    labels_map = config.plotting.condition_labels
+    if labels_map:
+        kept = _relabel_conditions(kept, group_col, labels_map)
+        per_fly = _relabel_conditions(per_fly, group_col, labels_map)
+        if events is not None:
+            events = _relabel_conditions(events, group_col, labels_map)
     groups = {
         str(label): grp[metric].to_numpy() for label, grp in kept.groupby(group_col, dropna=False)
     }
     palette = condition_palette(groups.keys())
+    # Box plot / CCDF / time course are split into one axis per facet as configured by
+    # ``plotting.facet_by`` (substrate | file | none); single-axis when <2 facets exist.
+    if config.plotting.facet_by == "file":
+        kept = with_file_labels(kept)
+        if events is not None:
+            events = with_file_labels(events)
+    facet_col, facet_values, facet_noun = resolve_facets(kept, config.plotting.facet_by)
     written: list[Path] = []
 
     def save(fig: object, stem: str) -> None:
@@ -318,18 +374,73 @@ def render_figures(
         written.extend(save_figure(fig, figdir / stem, formats=formats, dpi=dpi, close=True))
 
     if "dashboard" in kinds:
-        save(standalone_dashboard(kept, metric, central="median"), f"dashboard_{metric}")
+        if facet_col is not None:
+            dash = faceted_dashboard(
+                kept,
+                metric,
+                facet_col=facet_col,
+                values=facet_values,
+                group_col=group_col,
+                palette=palette,
+                central="median",
+                noun=facet_noun,
+            )
+        else:
+            dash = standalone_dashboard(kept, metric, central="median")
+        save(dash, f"dashboard_{metric}")
     if "boxplot" in kinds:
-        save(tilted_boxplot(groups, palette=palette, ylabel=metric).figure, f"boxplot_{metric}")
+        if facet_col is not None:
+            fig = faceted_boxplot(
+                kept,
+                metric,
+                facet_col=facet_col,
+                values=facet_values,
+                group_col=group_col,
+                palette=palette,
+                ylabel=metric,
+                noun=facet_noun,
+            )
+        else:
+            fig = tilted_boxplot(groups, palette=palette, ylabel=metric).figure
+        save(fig, f"boxplot_{metric}")
     if "cdf" in kinds:
-        save(ccdf_plot(groups, palette=palette, xlabel=metric).figure, f"ccdf_{metric}")
+        if facet_col is not None:
+            fig = faceted_ccdf(
+                kept,
+                metric,
+                facet_col=facet_col,
+                values=facet_values,
+                group_col=group_col,
+                palette=palette,
+                xlabel=metric,
+                noun=facet_noun,
+            )
+        else:
+            fig = ccdf_plot(groups, palette=palette, xlabel=metric).figure
+        save(fig, f"ccdf_{metric}")
     if "substrate" in kinds and "substrate_side" in kept.columns:
         save(substrate_comparison(kept, metric, ylabel=metric).figure, f"substrate_{metric}")
     if "timecourse" in kinds and events is not None and not events.empty:
-        series = cumulative_timecourse_by_condition(
-            events, config.acquisition.duration_samples, group_col=group_col, sampling_rate_hz=rate
-        )
-        save(shaded_lines(series, palette=palette).figure, "timecourse")
+        if facet_col is not None:
+            fig = faceted_timecourse(
+                events,
+                config.acquisition.duration_samples,
+                facet_col=facet_col,
+                values=facet_values,
+                group_col=group_col,
+                sampling_rate_hz=rate,
+                palette=palette,
+                noun=facet_noun,
+            )
+        else:
+            series = cumulative_timecourse_by_condition(
+                events,
+                config.acquisition.duration_samples,
+                group_col=group_col,
+                sampling_rate_hz=rate,
+            )
+            fig = shaded_lines(series, palette=palette).figure
+        save(fig, "timecourse")
     if "raster" in kinds and events is not None and not events.empty:
         # Full plate of the first file: every channel (silent or QC-removed too).
         fi0 = int(events["file_index"].min())

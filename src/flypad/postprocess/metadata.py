@@ -270,6 +270,38 @@ def channel_map_from_filenames(
     return frame
 
 
+def apply_label_overrides(
+    channel_map: pd.DataFrame,
+    *,
+    conditions: Sequence[str] = (),
+    substrates: Sequence[str] = (),
+) -> pd.DataFrame:
+    """Positionally override condition / substrate labels from config lists.
+
+    ``conditions[k - 1]`` replaces ``condition_label`` for condition number ``k``;
+    ``substrates[s - 1]`` replaces ``substrate_label`` for substrate ``s`` (1 = left,
+    2 = right). Empty lists leave the map unchanged, and condition / substrate numbers
+    past the end of a list keep their existing label. Returns a copy — the input is
+    not mutated. This is how ``config.metadata.conditions`` / ``.substrates`` take
+    effect; the raw sidecar/filename builders stay untouched.
+    """
+    if not conditions and not substrates:
+        return channel_map
+    out = channel_map.copy()
+    for code_col, label_col, names in (
+        ("condition", "condition_label", conditions),
+        ("substrate", "substrate_label", substrates),
+    ):
+        if not names or code_col not in out.columns:
+            continue
+        labels = out[label_col].astype(object).to_numpy().copy()
+        codes = out[code_col].to_numpy()
+        for k, name in enumerate(names, start=1):
+            labels[codes == k] = name
+        out[label_col] = labels
+    return out
+
+
 def _discover_exp_files(directory: Path) -> list[Path]:
     """Return ``exp_<i>.txt`` sidecars ordered by their integer index."""
 

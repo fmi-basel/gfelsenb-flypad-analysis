@@ -32,8 +32,13 @@ def cdf_plot(
     colors: Sequence[Any] | None = None,
     palette: Palette | None = None,
     xlabel: str = "value",
+    legend: bool = True,
 ) -> Any:
-    """Step CDF (or CCDF if ``complementary``) per group."""
+    """Step CDF (or CCDF if ``complementary``) per group.
+
+    Set ``legend=False`` to suppress the per-axis legend (e.g. when several axes
+    share one figure-level legend, as in the substrate-faceted figures).
+    """
     ax = _new_ax(ax)
     labels = list(groups)
     if palette is not None:
@@ -48,7 +53,7 @@ def cdf_plot(
         if x.size == 0:
             continue
         ax.step(x, y, where="post", color=cols[i], lw=1.8, label=label)
-    if labels:
+    if labels and legend:
         ax.legend(frameon=False, fontsize=9)
     ax.set_xlabel(xlabel)
     ax.set_ylabel("P(X ≥ x)" if complementary else "P(X ≤ x)")

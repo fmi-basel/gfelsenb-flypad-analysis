@@ -49,6 +49,43 @@ def test_spill_unconnected_removal_toggles_per_preset() -> None:
     assert compat.quality_control.remove_unconnected is False
 
 
+def test_plotting_condition_labels_override(tmp_path: Path) -> None:
+    exp = tmp_path / "exp.yaml"
+    exp.write_text(
+        "mode: corrected\nplotting:\n  condition_labels:\n"
+        '    "fully fed": "Fed control"\n    "24h wet starved": "Starved 24h"\n'
+    )
+    cfg = load_config(exp)
+    assert cfg.plotting.condition_labels == {
+        "fully fed": "Fed control",
+        "24h wet starved": "Starved 24h",
+    }
+
+
+def test_plotting_condition_labels_default_empty() -> None:
+    assert load_config(preset="corrected").plotting.condition_labels == {}
+
+
+def test_plotting_facet_by_default_and_override(tmp_path: Path) -> None:
+    assert load_config(preset="corrected").plotting.facet_by == "substrate"  # default
+    exp = tmp_path / "exp.yaml"
+    exp.write_text("mode: corrected\nplotting:\n  facet_by: file\n")
+    assert load_config(exp).plotting.facet_by == "file"
+
+
+def test_plotting_facet_by_rejects_unknown(tmp_path: Path) -> None:
+    exp = tmp_path / "exp.yaml"
+    exp.write_text("mode: corrected\nplotting:\n  facet_by: banana\n")
+    with pytest.raises(ValidationError):
+        load_config(exp)
+
+
+def test_stats_statistic_default_and_override() -> None:
+    assert load_config(preset="corrected").stats.statistic == "mean"
+    cfg = load_config(preset="corrected", overrides=["stats.statistic=median"])
+    assert cfg.stats.statistic == "median"
+
+
 def test_layering_experiment_over_preset(tmp_path: Path) -> None:
     exp = tmp_path / "exp.yaml"
     exp.write_text("mode: matlab_compat\nhardware:\n  n_channels: 96\n")

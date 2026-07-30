@@ -336,6 +336,16 @@ def test_export_table_csv_roundtrip(tmp_path: Path) -> None:
     assert len(reloaded) == len(pf)
 
 
+def test_export_table_creates_missing_parent_dir(tmp_path: Path) -> None:
+    from flypad.stats import export_table
+
+    df = pd.DataFrame({"a": [1, 2], "b": [3, 4]})
+    # parent "results/" does not exist yet -> export_table must create it, not raise
+    path = export_table(df, tmp_path / "20260709" / "results" / "dots.csv")
+    assert path.exists()
+    assert pd.read_csv(path).equals(df)
+
+
 # --------------------------------------------------------------------------- #
 # parity: aggregate metrics from Python detection vs the MATLAB .mat events
 # --------------------------------------------------------------------------- #
@@ -406,3 +416,73 @@ def test_cumulative_timecourse_by_condition() -> None:
     assert mean_a[-1] == pytest.approx(2.0)  # one fly, 2 sips total
     assert out["b"][1][-1] == pytest.approx(3.0)
     assert np.all(np.diff(mean_a) >= 0)  # cumulative is non-decreasing
+
+
+# --------------------------------------------------------------------------- #
+# build_comparisons: all pairwise permutation tests, faceted per config
+# --------------------------------------------------------------------------- #
+def _per_fly_2files_2conditions() -> pd.DataFrame:
+    rng = np.random.default_rng(9)
+    names = {
+        0: "CapacitanceData_C01_01_96_2026-07-09T10_01_52.0+02_00",
+        1: "CapacitanceData_C01_01_96_2026-07-09T15_43_50.0+02_00",
+    }
+    rows = []
+    for fi in (0, 1):
+        for cond, mu in (("refed", 30.0), ("starved", 120.0)):
+            for _ in range(15):
+                rows.append(
+                    {
+                        "file_index": fi,
+                        "file_name": names[fi],
+                        "condition": 1 if cond == "refed" else 2,
+                        "condition_label": cond,
+                        "n_sips": float(max(0.0, rng.normal(mu, 20.0))),
+                    }
+                )
+    return pd.DataFrame(rows)
+
+
+def _fast_cfg(facet_by: str):
+    from flypad.config import load_config
+
+    return load_config(
+        preset="matlab_compat",
+        overrides=[f"plotting.facet_by={facet_by}", "stats.n_permutations=200", "stats.seed=0"],
+    )
+
+
+def test_build_comparisons_faceted_by_file() -> None:
+    from flypad.stats import COMPARISON_COLUMNS, build_comparisons
+
+    comp = build_comparisons(_per_fly_2files_2conditions(), _fast_cfg("file"), metric="n_sips")
+    assert list(comp.columns) == list(COMPARISON_COLUMNS)
+    # pooled condition test
+    pooled = comp[(comp.contrast == "condition") & (comp.strata == "all")]
+    assert len(pooled) == 1
+    assert {pooled.iloc[0].group_a, pooled.iloc[0].group_b} == {"refed", "starved"}
+    # conditions within each file (titled by timestamp)
+    within = comp[(comp.contrast == "condition") & (comp.strata != "all")]
+    assert set(within["strata"]) == {"2026-07-09 10:01:52", "2026-07-09 15:43:50"}
+    # each condition compared across the two files
+    cross = comp[comp.contrast == "file"]
+    assert set(cross["strata"]) == {"refed", "starved"}
+    assert len(comp) == 5  # 1 pooled + 2 within-file + 2 cross-file
+    assert (comp["p_value"] > 0).all() and (comp["p_value"] <= 1).all()
+
+
+def test_build_comparisons_no_facet_is_pooled_only() -> None:
+    from flypad.stats import build_comparisons
+
+    comp = build_comparisons(_per_fly_2files_2conditions(), _fast_cfg("none"))
+    assert set(comp["contrast"]) == {"condition"}
+    assert list(comp["strata"]) == ["all"]
+
+
+def test_build_comparisons_single_condition_is_empty() -> None:
+    from flypad.stats import COMPARISON_COLUMNS, build_comparisons
+
+    one = _per_fly_2files_2conditions()
+    one = one[one["condition_label"] == "refed"]  # only one condition
+    comp = build_comparisons(one, _fast_cfg("none"))
+    assert comp.empty and list(comp.columns) == list(COMPARISON_COLUMNS)

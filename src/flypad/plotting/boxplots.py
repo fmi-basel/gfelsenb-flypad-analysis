@@ -16,7 +16,7 @@ import numpy as np
 import numpy.typing as npt
 import pandas as pd
 from matplotlib.lines import Line2D
-from matplotlib.transforms import Affine2D, blended_transform_factory
+from matplotlib.transforms import Affine2D
 
 from flypad.plotting.theme import GRAY, INK, MATLAB, PYTHON, distinguishable_colors
 
@@ -122,7 +122,7 @@ def tilted_boxplot(
     """Box plot per group with overlaid per-fly dots and tilted category labels.
 
     ``tilt_deg`` shears the box glyphs for the classic flyPAD tilted look (0 = upright);
-    ``show_n`` annotates each group's fly count beneath the axis.
+    ``show_n`` appends each group's fly count as a second line of its tick label.
     """
     ax = _new_ax(ax)
     labels, arrays = _as_groups(groups)
@@ -151,22 +151,13 @@ def tilted_boxplot(
     if show_points:
         plot_spread(ax, groups, positions=positions, colors=cols)
 
-    if show_n:
-        blended = blended_transform_factory(ax.transData, ax.transAxes)
-        for i, a in enumerate(arrays):
-            ax.text(
-                positions[i],
-                -0.04,
-                f"n={a.size}",
-                transform=blended,
-                ha="center",
-                va="top",
-                fontsize=8,
-                color=GRAY,
-            )
-
+    # Fold the per-group N into the tick label (a second line) so the count always
+    # rides with its category and never collides with rotated / long labels.
+    tick_labels = (
+        [f"{lbl}\nn={a.size}" for lbl, a in zip(labels, arrays, strict=True)] if show_n else labels
+    )
     ax.set_xticks(positions)
-    ax.set_xticklabels(labels, rotation=rotation, ha="right" if rotation else "center")
+    ax.set_xticklabels(tick_labels, rotation=rotation, ha="right" if rotation else "center")
     if ylabel:
         ax.set_ylabel(ylabel)
     return ax

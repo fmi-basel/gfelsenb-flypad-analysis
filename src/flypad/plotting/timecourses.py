@@ -78,15 +78,20 @@ def shaded_lines(
     palette: Mapping[str, Any] | None = None,
     xlabel: str = "time (s)",
     ylabel: str = "cumulative sips per fly",
+    legend: bool = True,
 ) -> Any:
-    """Overlay several ``label -> (x, mean, err)`` shaded curves with a legend."""
+    """Overlay several ``label -> (x, mean, err)`` shaded curves with a legend.
+
+    Set ``legend=False`` to suppress the per-axis legend (e.g. when several axes
+    share one figure-level legend, as in the substrate-faceted figures).
+    """
     ax = _new_ax(ax)
     labels = list(series)
     cols = _palette_colors(labels, colors, palette)
     for i, label in enumerate(labels):
         x, y, err = series[label]
         shaded_plot(ax, x, y, err, color=cols[i], label=label)
-    if labels:
+    if labels and legend:
         ax.legend(frameon=False, fontsize=9)
     ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)

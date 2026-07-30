@@ -317,8 +317,14 @@ def dots_table(
 
 
 def export_table(df: pd.DataFrame, path: str | Path) -> Path:
-    """Write ``df`` by extension: ``.csv`` (default), ``.parquet``, or ``.xlsx``."""
-    out = Path(path)
+    """Write ``df`` by extension: ``.csv`` (default), ``.parquet``, or ``.xlsx``.
+
+    The parent directory is created if missing (matching :func:`write_tables`) and a
+    leading ``~`` is expanded, so exporting into a fresh ``~/…/results/`` folder never
+    raises ``OSError``.
+    """
+    out = Path(path).expanduser()
+    out.parent.mkdir(parents=True, exist_ok=True)
     suffix = out.suffix.lower()
     if suffix == ".parquet":
         df.to_parquet(out, index=False)

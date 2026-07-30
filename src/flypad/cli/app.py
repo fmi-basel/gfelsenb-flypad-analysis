@@ -155,16 +155,33 @@ def stats(
     results_dir: str,
     metric: str = typer.Option("n_sips", "--metric", help="Metric to summarise per condition."),
 ) -> None:
-    """(Re)compute per-condition summaries from a saved per_fly table."""
+    """(Re)compute per-condition summaries and pairwise comparisons from saved tables."""
+    from pathlib import Path
+
+    import yaml
     from rich.table import Table
 
+    from flypad.config.models import Config
     from flypad.pipeline import read_table, write_tables
-    from flypad.stats import apply_qc_removal, per_condition_summary
+    from flypad.stats import apply_qc_removal, build_comparisons, per_condition_summary
+
+    # Reuse the run's resolved config (facet_by / stats params) when present.
+    used = Path(results_dir).expanduser() / "config.used.yaml"
+    cfg = (
+        Config.model_validate(yaml.safe_load(used.read_text(encoding="utf-8")))
+        if used.exists()
+        else Config()
+    )
 
     per_fly = read_table(results_dir, "per_fly")
     kept = apply_qc_removal(per_fly)
-    per_condition = per_condition_summary(kept)
-    write_tables({"per_condition": per_condition}, results_dir, formats=("csv",))
+    per_condition = per_condition_summary(kept, ci_level=cfg.stats.ci_level)
+    comparisons = build_comparisons(kept, cfg, metric=metric)
+    write_tables(
+        {"per_condition": per_condition, "comparisons": comparisons},
+        results_dir,
+        formats=("csv",),
+    )
 
     rows = per_condition[per_condition["metric"] == metric]
     group_col = "condition_label" if "condition_label" in rows.columns else "condition"
@@ -179,6 +196,34 @@ def stats(
             f"{r['median']:.1f}",
             f"{r['ci_low']:.1f}",
             f"{r['ci_high']:.1f}",
+        )
+    console.print(table)
+    _print_comparisons(comparisons, metric)
+
+
+def _print_comparisons(comparisons: object, metric: str) -> None:
+    """Render the pairwise-comparison table (significance marked)."""
+    import pandas as pd
+    from rich.table import Table
+
+    assert isinstance(comparisons, pd.DataFrame)
+    if comparisons.empty:
+        console.print(f"[dim]no pairwise comparisons for {metric} (need ≥2 groups)[/]")
+        return
+    table = Table(title=f"pairwise comparisons · {metric}")
+    for col in ("contrast", "strata", "group_a", "group_b", "p_value", "p_adj", "sig"):
+        table.add_column(col, justify="right")
+    for _, r in comparisons.iterrows():
+        padj = float(r["p_adjusted"])
+        sig = "***" if padj < 0.001 else "**" if padj < 0.01 else "*" if padj < 0.05 else "ns"
+        table.add_row(
+            str(r["contrast"]),
+            str(r["strata"]),
+            str(r["group_a"]),
+            str(r["group_b"]),
+            f"{float(r['p_value']):.3g}",
+            f"{padj:.3g}",
+            sig,
         )
     console.print(table)
 

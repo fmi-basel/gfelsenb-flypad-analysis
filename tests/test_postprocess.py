@@ -16,6 +16,7 @@ from flypad.config.models import (
 from flypad.detect.results import ChannelSips
 from flypad.postprocess import (
     ArenaTransitions,
+    apply_label_overrides,
     assess_quality,
     build_channel_condition_map,
     channel_condition_map_for_dir,
@@ -106,6 +107,38 @@ def test_channel_condition_map_for_dir_matches_fixture() -> None:
     expected = pd.read_csv(SAMPLE_CSV)
     got = channel_condition_map_for_dir(SAMPLE_DIR)
     pd.testing.assert_frame_equal(got, expected)
+
+
+def _tiny_map() -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "condition": [1, 2, 3, 1],
+            "condition_label": ["a", "b", "c", "a"],
+            "substrate": [1, 2, 1, 2],
+            "substrate_label": ["L", "R", "L", "R"],
+        }
+    )
+
+
+def test_apply_label_overrides_conditions_and_substrates() -> None:
+    cmap = _tiny_map()
+    out = apply_label_overrides(
+        cmap, conditions=["fed", "starved", "refed"], substrates=["sucrose", "yeast"]
+    )
+    assert list(out["condition_label"]) == ["fed", "starved", "refed", "fed"]
+    assert list(out["substrate_label"]) == ["sucrose", "yeast", "sucrose", "yeast"]
+    assert list(cmap["condition_label"]) == ["a", "b", "c", "a"]  # input not mutated
+
+
+def test_apply_label_overrides_partial_list_keeps_extra_labels() -> None:
+    # only two condition names given -> condition 3 keeps its original label
+    out = apply_label_overrides(_tiny_map(), conditions=["x", "y"])
+    assert list(out["condition_label"]) == ["x", "y", "c", "x"]
+
+
+def test_apply_label_overrides_empty_is_noop() -> None:
+    cmap = _tiny_map()
+    assert apply_label_overrides(cmap) is cmap  # unchanged, same object
 
 
 # --------------------------------------------------------------------------- #

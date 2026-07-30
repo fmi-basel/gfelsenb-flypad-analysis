@@ -68,7 +68,7 @@ def test_run_writes_tables_and_figures(tmp_path: Path) -> None:
     data_dir, cfg = _make_dataset(tmp_path)
     out = tmp_path / "results"
     _invoke(["run", str(data_dir), "-c", str(cfg), "-o", str(out)])
-    for name in ("events", "per_fly", "per_condition"):
+    for name in ("events", "per_fly", "per_condition", "comparisons"):
         assert (out / f"{name}.csv").exists()
     assert (out / "figures").is_dir()
     assert list((out / "figures").glob("*.png"))
@@ -124,6 +124,60 @@ def test_detect_then_stats_then_plot(tmp_path: Path) -> None:
 def test_detect_unknown_dir_fails() -> None:
     result = runner.invoke(app, ["detect", "/no/such/dir"])
     assert result.exit_code != 0
+
+
+# --------------------------------------------------------------------------- #
+# config label overrides (metadata.conditions -> tables; plotting -> plots only)
+# --------------------------------------------------------------------------- #
+def _cfg_with(tmp_path: Path, extra: str) -> Path:
+    cfg = tmp_path / "cfg_override.yaml"
+    cfg.write_text(
+        "mode: matlab_compat\n"
+        "hardware:\n  n_channels: 8\n  sampling_rate_hz: 100\n"
+        "acquisition:\n  duration_samples: 3000\n"
+        "output:\n  formats: [csv]\n" + extra
+    )
+    return cfg
+
+
+def test_metadata_conditions_override_renames_table_labels(tmp_path: Path) -> None:
+    data_dir, _ = _make_dataset(tmp_path)
+    cfg = _cfg_with(tmp_path, 'metadata:\n  conditions: ["Renamed Condition"]\n')
+    out = tmp_path / "results"
+    _invoke(["run", str(data_dir), "-c", str(cfg), "-o", str(out), "--no-plots"])
+    per_fly = pd.read_csv(out / "per_fly.csv")
+    assert set(per_fly["condition_label"]) == {"Renamed Condition"}
+
+
+def test_plotting_condition_labels_do_not_touch_tables(tmp_path: Path) -> None:
+    data_dir, _ = _make_dataset(tmp_path)
+    # plot-only rename: the exported table keeps the canonical "condition 1" label.
+    cfg = _cfg_with(tmp_path, 'plotting:\n  condition_labels:\n    "condition 1": "Displayed"\n')
+    out = tmp_path / "results"
+    _invoke(["run", str(data_dir), "-c", str(cfg), "-o", str(out)])
+    per_fly = pd.read_csv(out / "per_fly.csv")
+    assert set(per_fly["condition_label"]) == {"condition 1"}  # table unchanged
+    assert list((out / "figures").glob("*.png"))  # figures still rendered
+
+
+def test_write_tables_expands_tilde(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from flypad.pipeline import write_tables
+
+    monkeypatch.setenv("HOME", str(tmp_path))  # ~ -> tmp_path
+    written = write_tables({"events": pd.DataFrame({"a": [1, 2]})}, "~/d/results", formats=("csv",))
+    assert (tmp_path / "d" / "results" / "events.csv").exists()  # written to the real home
+    assert all(str(p).startswith(str(tmp_path)) for p in written)
+    assert not (Path.cwd() / "~" / "d").exists()  # no literal "~/d" dir left in the cwd
+
+
+def test_relabel_conditions_helper() -> None:
+    from flypad.pipeline.runner import _relabel_conditions
+
+    df = pd.DataFrame({"condition_label": ["a", "b", "a"], "n_sips": [1, 2, 3]})
+    out = _relabel_conditions(df, "condition_label", {"a": "A"})
+    assert list(out["condition_label"]) == ["A", "b", "A"]  # unmapped "b" kept
+    assert list(df["condition_label"]) == ["a", "b", "a"]  # input not mutated
+    assert _relabel_conditions(df, "condition_label", {}) is df  # empty map is a no-op
 
 
 # --------------------------------------------------------------------------- #

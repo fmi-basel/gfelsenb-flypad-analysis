@@ -154,6 +154,8 @@ class Stats(BaseModel):
     alternative: Literal["two-sided", "less", "greater"] = "two-sided"
     ci_level: float = Field(0.95, gt=0.0, lt=1.0)
     multiple_comparison: Literal["none", "bonferroni", "holm"] = "holm"
+    # Location statistic used for the pairwise comparison permutation tests.
+    statistic: Literal["mean", "median"] = "mean"
 
 
 class Metadata(BaseModel):
@@ -189,6 +191,16 @@ class Plotting(BaseModel):
     # like EPS it is vector, but it preserves transparency.
     vector_format: Literal["pdf", "eps", "svg", "none"] = "pdf"
     dpi: int = Field(300, gt=0)
+    # How the box plot / CCDF / time course are split into one axis per facet:
+    #   "substrate" — one axis per substrate when >1 is present (default);
+    #   "file"      — one axis per input recording, titled by its timestamp;
+    #   "none"      — a single pooled axis.
+    facet_by: Literal["substrate", "file", "none"] = "substrate"
+    # Presentation-only rename applied to condition labels in figures (x-axis / legend
+    # entries), keyed by the label as it appears in the tables. The exported tables keep
+    # their canonical labels; only the plots show the display names. Example:
+    # ``{"fully fed": "Fully fed (control)"}``.
+    condition_labels: dict[str, str] = Field(default_factory=dict)
 
 
 class Runtime(BaseModel):
