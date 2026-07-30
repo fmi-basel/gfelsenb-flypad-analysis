@@ -30,19 +30,48 @@ BoolArray = npt.NDArray[np.bool_]
 IntArray = npt.NDArray[np.int64]
 
 
-def saturation_fraction(raw: npt.ArrayLike, saturation_value: int = 4095) -> FloatArray:
+def _column_fractions(
+    mask: npt.NDArray[np.bool_],
+    starts: npt.ArrayLike | None,
+    duration: int | None,
+) -> FloatArray:
+    """Per-channel mean of ``mask``, over each channel's own window when given."""
+    if starts is None or duration is None:
+        return np.asarray(mask.mean(axis=0), dtype=np.float64)
+    offsets = np.asarray(starts, dtype=np.int64)
+    out = np.zeros(mask.shape[1], dtype=np.float64)
+    for channel in range(mask.shape[1]):
+        segment = mask[int(offsets[channel]) : int(offsets[channel]) + duration, channel]
+        out[channel] = float(segment.mean()) if segment.size else 0.0
+    return out
+
+
+def saturation_fraction(
+    raw: npt.ArrayLike,
+    saturation_value: int = 4095,
+    *,
+    starts: npt.ArrayLike | None = None,
+    duration: int | None = None,
+) -> FloatArray:
     """Per-channel fraction of saturated samples (``Events.SpillQuality``).
 
-    ``raw`` is a ``(time, channel)`` array of the *unfiltered* capacitance.
+    ``raw`` is a ``(time, channel)`` array of the *unfiltered* capacitance. With
+    ``starts`` / ``duration`` the fraction is measured over each channel's analysis
+    window only, so the pre-fill handling period cannot flag an otherwise-clean channel.
     """
     data = np.asarray(raw)
-    return np.asarray((data >= saturation_value).mean(axis=0), dtype=np.float64)
+    return _column_fractions(data >= saturation_value, starts, duration)
 
 
-def zero_fraction(raw: npt.ArrayLike) -> FloatArray:
-    """Per-channel fraction of zero samples (``Events.Unconnected``)."""
+def zero_fraction(
+    raw: npt.ArrayLike,
+    *,
+    starts: npt.ArrayLike | None = None,
+    duration: int | None = None,
+) -> FloatArray:
+    """Per-channel fraction of zero samples (``Events.Unconnected``), window-aware."""
     data = np.asarray(raw)
-    return np.asarray((data == 0).mean(axis=0), dtype=np.float64)
+    return _column_fractions(data == 0, starts, duration)
 
 
 def flag_spill_channels(spill_fraction: npt.ArrayLike, threshold: float = 0.5) -> BoolArray:

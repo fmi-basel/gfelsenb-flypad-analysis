@@ -361,6 +361,56 @@ def test_raster_switches_to_minutes_for_long_recordings() -> None:
     assert ax.collections[0].get_positions()[-1] == pytest.approx(43.2, abs=0.1)
 
 
+def test_raster_fill_markers_span_their_arena() -> None:
+    rows = [np.array([500, 900]) for _ in range(16)]  # 2 board positions x 8 channels
+    ax = raster_plot(
+        rows,
+        sampling_rate_hz=100,
+        fills=[(100.0, 0.0, 7.0), (400.0, 8.0, 15.0)],
+        row_conditions=["a"] * 16,
+        palette=condition_palette(["a"]),
+    )
+    reds = [ln for ln in ax.lines if ln.get_color() == "#D62728"]
+    assert len(reds) == 2
+    # each marker spans only its own arena's rows, and sits at its own time
+    assert reds[0].get_ydata() == pytest.approx((-0.4, 7.4))
+    assert reds[1].get_ydata() == pytest.approx((7.6, 15.4))
+    assert reds[0].get_xdata()[0] == pytest.approx(1.0)  # 100 samples @100 Hz = 1 s
+    assert "arena filled" in [t.get_text() for t in ax.get_legend().get_texts()]
+
+
+def test_raster_panels_side_by_side() -> None:
+    from flypad.plotting import raster_panels
+
+    rows_abs = [np.array([100, 5000]), np.array([3000, 8000])]
+    rows_aligned = [np.array([100, 2000]), np.array([100, 2000])]
+    fig = raster_panels(
+        [
+            ("absolute time (uncropped)", rows_abs, [(0.0, 0.0, 1.0)]),
+            ("aligned to arena fill", rows_aligned, [(0.0, 0.0, 1.0), (3000.0, 0.0, 1.0)]),
+        ],
+        row_conditions=["a", "a"],
+        palette=condition_palette(["a"]),
+        sampling_rate_hz=100,
+        suptitle_text="2026-07-09 10:01:52",
+    )
+    assert len(fig.axes) == 2
+    assert [ax.get_title() for ax in fig.axes] == [
+        "absolute time (uncropped)",
+        "aligned to arena fill",
+    ]
+    assert fig._suptitle.get_text() == "2026-07-09 10:01:52"
+    assert fig.axes[0].get_ylabel() == "channel" and fig.axes[1].get_ylabel() == ""
+    # the panels span different times, so the x-axes must stay independent
+    assert fig.axes[0].get_xlim() != fig.axes[1].get_xlim()
+    assert fig.axes[0].get_legend() is None and fig.axes[1].get_legend() is not None
+
+
+def test_raster_without_fills_has_no_red_lines() -> None:
+    ax = raster_plot([np.array([10, 20])], sampling_rate_hz=100)
+    assert not [ln for ln in ax.lines if ln.get_color() == "#D62728"]
+
+
 def test_raster_sample_axis_without_rate() -> None:
     ax = raster_plot([np.array([100, 200])])
     assert ax.get_xlabel() == "sample"

@@ -79,3 +79,48 @@ def test_load_real_sample_recording() -> None:
     assert rec.n_channels == 96
     assert rec.n_samples == 425391
     assert rec.meta.date == "2024-02-15"
+
+
+# --------------------------------------------------------------------------- #
+# manual arena-fill timestamps (timestamps_manual_*.csv)
+# --------------------------------------------------------------------------- #
+_FILLS_CSV = "0,9612,Right\n1,16261,Right\n2,22344,Right\n3,79204,Space\n"
+_CAP_NAME = "CapacitanceData_C01_01_96_2026-07-09T10_01_52.3332352+02_00"
+
+
+def test_read_arena_fills_parses_rows(tmp_path: Path) -> None:
+    from flypad.io import read_arena_fills
+
+    path = tmp_path / "timestamps_manual_2026-07-09T10_01_52.csv"
+    path.write_text(_FILLS_CSV)
+    fills = read_arena_fills(path)
+    assert list(fills.columns) == ["arena", "board_position", "sample", "key"]
+    assert list(fills["arena"]) == [0, 1, 2, 3]
+    assert list(fills["board_position"]) == [1, 2, 3, 4]  # 1-based, matches the channel map
+    assert list(fills["sample"]) == [9612, 16261, 22344, 79204]
+    assert fills["key"].iloc[-1] == "Space"  # key column preserved but not interpreted
+
+
+def test_read_arena_fills_tolerates_header(tmp_path: Path) -> None:
+    from flypad.io import read_arena_fills
+
+    path = tmp_path / "ts.csv"
+    path.write_text("arena,sample,key\n" + _FILLS_CSV)
+    assert len(read_arena_fills(path)) == 4  # header row dropped
+
+
+def test_find_arena_fills_matches_on_timestamp(tmp_path: Path) -> None:
+    from flypad.io import find_arena_fills
+
+    (tmp_path / "timestamps_manual_2026-07-09T10_01_52.csv").write_text(_FILLS_CSV)
+    (tmp_path / "timestamps_manual_2026-07-09T15_43_50.csv").write_text("0,111,Right\n")
+    fills = find_arena_fills(tmp_path, _CAP_NAME)
+    assert fills is not None
+    assert list(fills["sample"]) == [9612, 16261, 22344, 79204]  # picked the 10:01:52 sidecar
+
+
+def test_find_arena_fills_missing_returns_none(tmp_path: Path) -> None:
+    from flypad.io import find_arena_fills
+
+    assert find_arena_fills(tmp_path, _CAP_NAME) is None  # no sidecar at all
+    assert find_arena_fills(tmp_path, "CapacitanceData_no_timestamp") is None

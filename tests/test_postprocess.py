@@ -325,3 +325,64 @@ def test_channel_map_from_filenames_unassigned() -> None:
     cmap = channel_map_from_filenames(files, n_channels=8)
     assert set(cmap.loc[cmap.channel < 4, "condition"]) == {1}
     assert set(cmap.loc[cmap.channel >= 4, "condition_label"]) == {"unassigned"}
+
+
+# --------------------------------------------------------------------------- #
+# per-arena alignment to the manual fill timestamps
+# --------------------------------------------------------------------------- #
+def _fills(samples: list[int]) -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "arena": range(len(samples)),
+            "board_position": range(1, len(samples) + 1),
+            "sample": samples,
+            "key": ["Right"] * len(samples),
+        }
+    )
+
+
+def test_arena_start_samples_first_is_zero_and_shifted_by_one() -> None:
+    from flypad.postprocess import arena_start_samples
+
+    # each stamp starts the *next* arena; the last stamp is a spare end-of-loading marker
+    starts = arena_start_samples(_fills([100, 200, 300]), n_positions=3)
+    assert starts == {1: 0, 2: 100, 3: 200}
+
+
+def test_channel_start_samples_expands_over_channels() -> None:
+    from flypad.postprocess import channel_start_samples
+
+    starts = channel_start_samples(_fills([100, 200]), n_channels=16, channels_per_board_position=8)
+    assert list(starts[:8]) == [0] * 8  # arena 1 starts with the recording
+    assert list(starts[8:]) == [100] * 8  # arena 2 at the first stamp
+
+
+def test_available_duration_is_limited_by_the_latest_start() -> None:
+    from flypad.postprocess import available_duration
+
+    assert available_duration([0, 100, 250], n_samples=1000) == 750
+    assert available_duration([0], n_samples=1000) == 1000
+    assert available_duration([0, 2000], n_samples=1000) == 0  # start beyond the file
+
+
+def test_window_sips_crops_and_rebases() -> None:
+    from flypad.postprocess.alignment import window_sips
+
+    sips = _sips([50, 150, 250, 400], [60, 160, 260, 410])
+    out = window_sips(sips, start=100, duration=200)  # keep onsets in [100, 300)
+    assert list(out.onsets) == [50, 150]  # 150-100, 250-100 -> arena-relative
+    assert list(out.offsets) == [60, 160]
+
+
+def test_align_channels_equalises_exposure() -> None:
+    from flypad.detect.results import ChannelBouts
+    from flypad.postprocess import align_channels
+
+    # two channels, the second arena filled 100 samples later
+    sips = [_sips([10, 500], [20, 510]), _sips([110, 600], [120, 610])]
+    bouts = [ChannelBouts(onsets=np.array([10]), offsets=np.array([20]))] * 2
+    out_sips, out_bouts = align_channels(sips, bouts, starts=[0, 100], duration=600)
+    # both channels now report the same arena-relative times
+    assert list(out_sips[0].onsets) == [10, 500]
+    assert list(out_sips[1].onsets) == [10, 500]
+    assert len(out_bouts) == 2

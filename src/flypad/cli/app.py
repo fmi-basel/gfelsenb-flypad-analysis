@@ -37,6 +37,7 @@ def run(
     """Run the full pipeline on a folder of recordings."""
     from flypad.config import load_config
     from flypad.pipeline import (
+        absolute_onsets,
         build_tables,
         detect_experiment,
         render_figures,
@@ -59,6 +60,8 @@ def run(
             cfg,
             comparisons=tables["comparisons"],
             n_samples=detection.n_samples,
+            data_dir=data_dir,
+            events_absolute=absolute_onsets(detection),
             progress=console.log,
         )
 
@@ -249,6 +252,9 @@ def plot(
     metric: str = typer.Option("n_sips", "--metric", help="Metric to plot."),
     config: str | None = typer.Option(None, "-c", "--config", help="Experiment YAML (styling)."),
     mode: str | None = typer.Option(None, "--mode", help="matlab_compat | corrected."),
+    data_dir: str | None = typer.Option(
+        None, "--data-dir", help="Input folder, for the raster's manual arena-fill markers."
+    ),
 ) -> None:
     """Render figures from saved results into ``RESULTS_DIR/figures``."""
     from flypad.config import load_config
@@ -273,6 +279,7 @@ def plot(
         kinds=kinds,
         metric=metric,
         comparisons=comparisons,
+        data_dir=data_dir,
         progress=console.log,
     )
     console.print(f"[green]done[/] {len(written)} figure files in [bold]{results_dir}/figures[/]")

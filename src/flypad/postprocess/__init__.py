@@ -1,5 +1,11 @@
 """Post-processing: feeding bursts, QC removal, transitions, metadata (design §5, M4)."""
 
+from flypad.postprocess.alignment import (
+    align_channels,
+    arena_start_samples,
+    available_duration,
+    channel_start_samples,
+)
 from flypad.postprocess.bursts import (
     ChannelBursts,
     detect_feeding_bursts,
@@ -43,11 +49,15 @@ __all__ = [
     "ExpSidecar",
     "LogLabels",
     "QualityResult",
+    "align_channels",
     "apply_label_overrides",
+    "arena_start_samples",
     "assess_quality",
+    "available_duration",
     "build_channel_condition_map",
     "channel_condition_map_for_dir",
     "channel_map_from_filenames",
+    "channel_start_samples",
     "channel_transitions",
     "classify_in_burst",
     "detect_feeding_bursts",

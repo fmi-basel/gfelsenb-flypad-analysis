@@ -16,7 +16,13 @@ import pandas as pd
 from qtpy.QtCore import QObject, Signal  # type: ignore[attr-defined]
 
 from flypad.config.models import Config
-from flypad.pipeline import build_tables, detect_experiment, render_figures, write_tables
+from flypad.pipeline import (
+    absolute_onsets,
+    build_tables,
+    detect_experiment,
+    render_figures,
+    write_tables,
+)
 
 Progress = Callable[[str], None]
 
@@ -59,6 +65,8 @@ def run_pipeline_job(
             config,
             comparisons=tables["comparisons"],
             n_samples=detection.n_samples,
+            data_dir=data_dir,
+            events_absolute=absolute_onsets(detection),
             progress=progress,
         )
     from flypad.stats import apply_qc_removal

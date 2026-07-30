@@ -25,7 +25,7 @@ from flypad.plotting.facets import (
     with_file_labels,
 )
 from flypad.plotting.labels import METRIC_LABELS, metric_label, time_axis
-from flypad.plotting.rasters import raster_plot
+from flypad.plotting.rasters import raster_panels, raster_plot
 from flypad.plotting.theme import (
     condition_palette,
     distinguishable_colors,
@@ -59,6 +59,7 @@ __all__ = [
     "metric_label",
     "my_errorbar",
     "plot_spread",
+    "raster_panels",
     "raster_plot",
     "resolve_facets",
     "save_figure",

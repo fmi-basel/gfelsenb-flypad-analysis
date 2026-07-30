@@ -24,7 +24,7 @@ import yaml
 from flypad import __version__
 from flypad.config.models import Config
 from flypad.datamodel import load_recording
-from flypad.detect.results import ChannelBouts, ChannelSips
+from flypad.detect.results import ChannelBouts, ChannelSips, shift_bouts, shift_sips
 from flypad.detect.run import detect_recording
 from flypad.io.discovery import find_capacitance_files
 from flypad.postprocess.bursts import ChannelBursts, detect_feeding_bursts
@@ -70,6 +70,9 @@ class DetectionResult:
     spill_by_file: list[FloatArray]
     zero_by_file: list[FloatArray]
     n_samples: int = 0
+    #: Pre-alignment sips in absolute file time — kept only when arena alignment ran, so
+    #: the raster can show what the crop removed. ``None`` when nothing was aligned.
+    absolute_sips_by_file: list[list[ChannelSips]] | None = None
 
 
 def _emit(progress: Progress | None, message: str) -> None:
@@ -140,6 +143,47 @@ def _discover_channel_map(
     return _default_channel_map(files, config)
 
 
+def _arena_starts(
+    data_dir: str | Path, file_name: str, config: Config
+) -> npt.NDArray[np.int64] | None:
+    """Per-channel arena start samples for one recording, or ``None`` without a sidecar."""
+    if not config.alignment.enabled:
+        return None
+    from flypad.io.timestamps import find_arena_fills
+    from flypad.postprocess.alignment import channel_start_samples
+
+    fills = find_arena_fills(data_dir, file_name)
+    if fills is None or fills.empty:
+        return None
+    return channel_start_samples(
+        fills, config.hardware.n_channels, config.metadata.channels_per_board_position
+    )
+
+
+def _raw_length(path: Path, config: Config) -> int:
+    """Recording length in samples, from the file size alone (no read)."""
+    itemsize = np.dtype(config.acquisition.dtype).itemsize
+    on_disk = path.stat().st_size // (itemsize * config.hardware.n_channels)
+    return int(min(on_disk, config.acquisition.duration_samples))
+
+
+def _window_duration(
+    starts_by_file: Sequence[npt.NDArray[np.int64] | None],
+    lengths: Sequence[int],
+    config: Config,
+) -> int:
+    """Common per-channel window: the configured one, else the longest all arenas allow."""
+    from flypad.postprocess.alignment import available_duration
+
+    if config.alignment.window_samples:
+        return int(config.alignment.window_samples)
+    zeros = np.zeros(config.hardware.n_channels, dtype=np.int64)
+    return min(
+        available_duration(s if s is not None else zeros, n)
+        for s, n in zip(starts_by_file, lengths, strict=True)
+    )
+
+
 def detect_experiment(
     data_dir: str | Path,
     config: Config,
@@ -152,25 +196,61 @@ def detect_experiment(
     if not files:
         raise FileNotFoundError(f"no CapacitanceData* files in {data_dir}")
 
+    from flypad.postprocess.alignment import align_channels
+
+    # Cheap pre-pass (file sizes + the small timestamp sidecars) so the common analysis
+    # window is known before any raw data is read — every output can then be computed
+    # over that window in a single pass.
+    lengths = [_raw_length(p, config) for p in files]
+    starts_by_file = [_arena_starts(data_dir, p.name, config) for p in files]
+    aligned = config.alignment.enabled and any(s is not None for s in starts_by_file)
+    duration = _window_duration(starts_by_file, lengths, config) if aligned else 0
+    if aligned and duration <= 0:
+        _emit(progress, "arena alignment skipped (no usable common window)")
+        aligned = False
+    if aligned:
+        _emit(progress, f"align arenas → {duration} samples per channel")
+
+    zeros = np.zeros(config.hardware.n_channels, dtype=np.int64)
     sips_by_file: list[list[ChannelSips]] = []
     bouts_by_file: list[list[ChannelBouts]] = []
     bursts_by_file: list[list[ChannelBursts]] = []
     spill_by_file: list[FloatArray] = []
     zero_by_file: list[FloatArray] = []
-    lengths: list[int] = []
+    absolute_sips_by_file: list[list[ChannelSips]] = []
     for i, path in enumerate(files, 1):
         _emit(progress, f"detect [{i}/{len(files)}] {path.name}")
         recording = load_recording(path, config)
         raw = np.asarray(recording.capacitance.values)
-        lengths.append(int(raw.shape[0]))
+        file_starts = starts_by_file[i - 1]
+        starts = (file_starts if file_starts is not None else zeros) if aligned else None
+        window = duration if aligned else None
+        # QC fractions honour the same window, so the pre-fill handling period cannot
+        # flag a channel that is clean while its fly is actually being recorded.
         spill_by_file.append(
-            saturation_fraction(raw, config.quality_control.spill_saturation_value)
+            saturation_fraction(
+                raw,
+                config.quality_control.spill_saturation_value,
+                starts=starts,
+                duration=window,
+            )
         )
-        zero_by_file.append(zero_fraction(raw))
+        zero_by_file.append(zero_fraction(raw, starts=starts, duration=window))
         result = detect_recording(recording.capacitance, config)
-        _, bursts = detect_feeding_bursts(result.sips, config.feeding_bursts)
-        sips_by_file.append(result.sips)
-        bouts_by_file.append(result.bouts)
+        # Detection indexes the de-trended trace, which "crop" edge handling starts
+        # crop_offset samples into the file; shift back so every downstream index
+        # (tables, figures, arena-fill alignment) is a raw-file sample position.
+        sips = [shift_sips(s, result.crop_offset) for s in result.sips]
+        bouts = [shift_bouts(b, result.crop_offset) for b in result.bouts]
+        if aligned and starts is not None:
+            absolute_sips_by_file.append(sips)  # keep the uncropped view for the raster
+            sips, bouts = align_channels(sips, bouts, starts, duration)
+        sips_by_file.append(sips)
+        bouts_by_file.append(bouts)
+
+    n_samples = duration if aligned else (min(lengths) if lengths else 0)
+    for sips in sips_by_file:
+        _, bursts = detect_feeding_bursts(sips, config.feeding_bursts)
         bursts_by_file.append(bursts)
 
     _emit(progress, "build channel→condition map")
@@ -183,8 +263,43 @@ def detect_experiment(
         channel_map=channel_map,
         spill_by_file=spill_by_file,
         zero_by_file=zero_by_file,
-        n_samples=min(lengths) if lengths else 0,
+        n_samples=n_samples,
+        absolute_sips_by_file=absolute_sips_by_file or None,
     )
+
+
+def absolute_onsets(detection: DetectionResult) -> pd.DataFrame | None:
+    """Minimal ``file_index / file_name / channel / onset`` frame in absolute file time.
+
+    Built from the pre-alignment sips so the raster can show the uncropped recording next
+    to the aligned one. ``None`` when no alignment ran (the ``events`` table is already
+    in absolute time).
+    """
+    if not detection.absolute_sips_by_file:
+        return None
+    names = (
+        detection.channel_map.drop_duplicates("file_index").set_index("file_index")["file_name"]
+        if "file_name" in detection.channel_map.columns
+        else None
+    )
+    blocks: list[pd.DataFrame] = []
+    for file_index, per_channel in enumerate(detection.absolute_sips_by_file):
+        for channel, sips in enumerate(per_channel):
+            if not len(sips):
+                continue
+            blocks.append(
+                pd.DataFrame(
+                    {
+                        "file_index": file_index,
+                        "file_name": (names.get(file_index, "") if names is not None else ""),
+                        "channel": channel,
+                        "onset": np.asarray(sips.onsets, dtype=np.int64),
+                    }
+                )
+            )
+    if not blocks:
+        return None
+    return pd.concat(blocks, ignore_index=True)
 
 
 def build_tables(detection: DetectionResult, config: Config) -> dict[str, pd.DataFrame]:
@@ -331,6 +446,73 @@ def _condition_pairs(
     return [(disp(r.group_a), disp(r.group_b), float(r.p_adjusted)) for r in sub.itertuples()]
 
 
+def _arena_fill_markers(
+    data_dir: str | Path | None,
+    file_events: pd.DataFrame,
+    config: Config,
+    duration: int | None = None,
+) -> list[tuple[float, float, float]] | None:
+    """Red-line markers bounding each channel's analysis window in the raster.
+
+    Every arena contributes a **start** and an **end** marker spanning only its own
+    channels. In arena-aligned coordinates all windows are ``[0, duration)``, so the pair
+    becomes two full-height lines delimiting the analysed span; in absolute time they form
+    the loading staircase and its parallel end staircase. ``None`` without a sidecar.
+    """
+    if data_dir is None or "file_name" not in file_events.columns or file_events.empty:
+        return None
+    from flypad.io.timestamps import find_arena_fills
+
+    fills = find_arena_fills(data_dir, str(file_events["file_name"].iloc[0]))
+    if fills is None or fills.empty:
+        return None
+    step = config.metadata.channels_per_board_position
+    n_channels = config.hardware.n_channels
+    if config.alignment.enabled:
+        if not duration:
+            return None
+        return [(0.0, 0.0, float(n_channels - 1)), (float(duration), 0.0, float(n_channels - 1))]
+
+    from flypad.postprocess.alignment import arena_start_samples
+
+    # Unaligned: every channel is analysed over the whole recording, so only the arena
+    # starts carry information — an "end" would just be the right-hand axis limit.
+    n_positions = -(-n_channels // step)
+    starts = arena_start_samples(fills, n_positions)
+    markers: list[tuple[float, float, float]] = []
+    for position, start in sorted(starts.items()):
+        lo = float((position - 1) * step)
+        hi = float(min((position - 1) * step + step - 1, n_channels - 1))
+        markers.append((float(start), lo, hi))
+    return markers or None
+
+
+def _absolute_rows(
+    events_absolute: pd.DataFrame | None, file_index: int, channels: Sequence[int]
+) -> list[Any] | None:
+    """Per-channel absolute onsets for one recording, ordered like ``channels``."""
+    if events_absolute is None or events_absolute.empty:
+        return None
+    one = events_absolute[events_absolute["file_index"] == file_index]
+    if one.empty:
+        return None
+    by_channel = {int(c): g["onset"].to_numpy() for c, g in one.groupby("channel")}
+    return [by_channel.get(c, []) for c in channels]
+
+
+def _absolute_fill_markers(
+    data_dir: str | Path | None, file_events: pd.DataFrame, config: Config
+) -> list[tuple[float, float, float]] | None:
+    """Arena-start markers in absolute time, regardless of the alignment setting."""
+    unaligned = config.model_copy(update={"alignment": config.alignment.model_copy()})
+    unaligned.alignment.enabled = False
+    return _arena_fill_markers(data_dir, file_events, unaligned)
+
+
+def _minutes(samples: int, rate: int) -> str:
+    return f"{samples / rate / 60:.0f} min per channel"
+
+
 def _slug(text: str) -> str:
     """Filesystem-safe stem fragment (``2026-07-09 10:01:52`` -> ``2026-07-09_10-01-52``)."""
     cleaned = "".join(c if c.isalnum() else ("_" if c == " " else "-") for c in text.strip())
@@ -353,9 +535,14 @@ def render_figures(
     metric: str = "n_sips",
     comparisons: pd.DataFrame | None = None,
     n_samples: int | None = None,
+    data_dir: str | Path | None = None,
+    events_absolute: pd.DataFrame | None = None,
     progress: Progress | None = None,
 ) -> list[Path]:
     """Render the requested figure kinds into ``out_dir/figures``.
+
+    ``data_dir`` is the *input* folder; when given, each raster overlays that recording's
+    manual arena-fill timestamps (``timestamps_manual_*.csv``) as red vertical markers.
 
     When ``comparisons`` (from :func:`flypad.stats.build_comparisons`) is supplied and
     ``config.plotting.annotate_stats`` is on, the box plot's condition comparisons are
@@ -371,6 +558,7 @@ def render_figures(
         faceted_dashboard,
         faceted_timecourse,
         metric_label,
+        raster_panels,
         raster_plot,
         resolve_facets,
         save_figure,
@@ -541,10 +729,39 @@ def render_figures(
                 if group_col in pf0.columns
                 else None
             )
-            raster = raster_plot(
-                rows, row_conditions=row_conditions, palette=palette, sampling_rate_hz=rate
-            )
-            raster.set_title(label)
-            save(raster.figure, f"raster_{_slug(label)}")
+            aligned_fills = _arena_fill_markers(data_dir, one, config, duration)
+            abs_rows = _absolute_rows(events_absolute, fi, channels)
+            if abs_rows is None:
+                raster = raster_plot(
+                    rows,
+                    row_conditions=row_conditions,
+                    palette=palette,
+                    sampling_rate_hz=rate,
+                    fills=aligned_fills,
+                )
+                raster.set_title(label)
+                fig = raster.figure
+            else:
+                # Side by side: the uncropped recording (with each arena's fill time) next
+                # to the arena-aligned window that the analysis actually uses.
+                fig = raster_panels(
+                    [
+                        (
+                            "absolute time (uncropped)",
+                            abs_rows,
+                            _absolute_fill_markers(data_dir, one, config),
+                        ),
+                        (
+                            f"aligned to arena fill ({_minutes(duration, rate)})",
+                            rows,
+                            aligned_fills,
+                        ),
+                    ],
+                    row_conditions=row_conditions,
+                    palette=palette,
+                    sampling_rate_hz=rate,
+                    suptitle_text=label,
+                )
+            save(fig, f"raster_{_slug(label)}")
 
     return written

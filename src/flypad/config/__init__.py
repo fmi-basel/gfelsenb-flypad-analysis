@@ -10,6 +10,7 @@ from flypad.config.loader import (
 )
 from flypad.config.models import (
     Acquisition,
+    Alignment,
     Analysis,
     Config,
     EdgeHandling,
@@ -29,6 +30,7 @@ from flypad.config.schema import (
 __all__ = [
     "KNOWN_PRESETS",
     "Acquisition",
+    "Alignment",
     "Analysis",
     "Config",
     "EdgeHandling",

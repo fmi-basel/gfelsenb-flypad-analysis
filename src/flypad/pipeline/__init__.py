@@ -3,6 +3,7 @@
 from flypad.pipeline.context import Context
 from flypad.pipeline.runner import (
     DetectionResult,
+    absolute_onsets,
     build_tables,
     config_hash,
     detect_experiment,
@@ -17,6 +18,7 @@ __all__ = [
     "REGISTRY",
     "Context",
     "DetectionResult",
+    "absolute_onsets",
     "build_tables",
     "config_hash",
     "detect_experiment",

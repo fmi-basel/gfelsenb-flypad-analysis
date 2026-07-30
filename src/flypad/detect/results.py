@@ -46,9 +46,28 @@ class ChannelBouts:
         return int(self.onsets.size)
 
 
+def shift_sips(sips: ChannelSips, offset: int) -> ChannelSips:
+    """Return ``sips`` with all indices moved by ``offset`` samples."""
+    if offset == 0:
+        return sips
+    return ChannelSips(onsets=sips.onsets + offset, offsets=sips.offsets + offset)
+
+
+def shift_bouts(bouts: ChannelBouts, offset: int) -> ChannelBouts:
+    """Return ``bouts`` with all indices moved by ``offset`` samples."""
+    if offset == 0:
+        return bouts
+    return ChannelBouts(onsets=bouts.onsets + offset, offsets=bouts.offsets + offset)
+
+
 @dataclass
 class DetectResult:
-    """Per-recording detection output."""
+    """Per-recording detection output.
+
+    Sip/bout indices are positions in the *de-trended* trace. With
+    ``edge_handling="crop"`` that trace starts ``crop_offset`` samples into the raw file,
+    so raw-file positions are ``index + crop_offset`` (see :func:`shift_sips`).
+    """
 
     sips: list[ChannelSips]
     bouts: list[ChannelBouts]

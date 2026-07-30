@@ -63,6 +63,23 @@ class Acquisition(BaseModel):
     dtype: Literal["uint16"] = "uint16"
 
 
+class Alignment(BaseModel):
+    """Per-arena alignment to the manual fill timestamps (design §5.1).
+
+    A plate is loaded one arena at a time, so without alignment a fly in board position 1
+    is exposed to food far longer than one in position 12. When enabled and a
+    ``timestamps_manual_*.csv`` sidecar is present, every channel is re-based on its own
+    arena's fill time and cropped to a common ``window_samples``, making the per-fly
+    metrics comparable. Without a sidecar this is a no-op.
+    """
+
+    model_config = _Strict
+    enabled: bool = True
+    # Common per-channel window. ``None`` = the longest window every arena in every
+    # recording can supply (``n_samples - latest arena start``).
+    window_samples: int | None = Field(None, gt=0)
+
+
 class QualityControl(BaseModel):
     """Channel-validity and spill/unconnected QC.
 
@@ -232,6 +249,7 @@ class Config(BaseModel):
     mode: Mode = Mode.corrected
     hardware: Hardware = Field(default_factory=Hardware)
     acquisition: Acquisition = Field(default_factory=Acquisition)
+    alignment: Alignment = Field(default_factory=Alignment)
     quality_control: QualityControl = Field(default_factory=QualityControl)
     preprocessing: Preprocessing = Field(default_factory=Preprocessing)
     activity_bouts: ActivityBouts = Field(default_factory=ActivityBouts)

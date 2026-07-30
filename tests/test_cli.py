@@ -218,6 +218,43 @@ def test_raster_written_per_recording(tmp_path: Path) -> None:
     assert _slug("2026-07-09 10:01:52") == "2026-07-09_10-01-52"
 
 
+def test_arena_fill_markers_reach_the_raster(tmp_path: Path) -> None:
+    from flypad.config import load_config
+    from flypad.pipeline.runner import _arena_fill_markers
+
+    name = "CapacitanceData_C01_01_16_2026-07-09T10_01_52.0+02_00"
+    (tmp_path / "timestamps_manual_2026-07-09T10_01_52.csv").write_text(
+        "0,9612,Right\n1,16261,Right\n"
+    )
+    events = pd.DataFrame({"file_name": [name], "onset": [100]})
+    cfg = load_config(
+        preset="corrected",
+        overrides=[
+            "hardware.n_channels=16",
+            "metadata.channels_per_board_position=8",
+            "alignment.enabled=false",  # absolute time -> markers are meaningful
+        ],
+    )
+    # absolute time: arena 1's window starts at 0, arena 2's at the first key press.
+    # Unaligned every channel spans the whole file, so only the starts are drawn.
+    starts_only = [(0.0, 0.0, 7.0), (9612.0, 8.0, 15.0)]
+    assert _arena_fill_markers(tmp_path, events, cfg) == starts_only
+    assert _arena_fill_markers(tmp_path, events, cfg, 5000) == starts_only
+    assert _arena_fill_markers(None, events, cfg) is None  # no data dir -> no markers
+    assert _arena_fill_markers(tmp_path / "nope", events, cfg) is None  # no sidecar
+
+    # arena-aligned: every window is [0, duration), so the pair bounds the whole plate
+    aligned = load_config(
+        preset="corrected",
+        overrides=["hardware.n_channels=16", "alignment.enabled=true"],
+    )
+    assert _arena_fill_markers(tmp_path, events, aligned, 5000) == [
+        (0.0, 0.0, 15.0),
+        (5000.0, 0.0, 15.0),
+    ]
+    assert _arena_fill_markers(tmp_path, events, aligned) is None  # no window -> nothing to bound
+
+
 def test_substrate_figure_skipped_for_single_substrate(tmp_path: Path) -> None:
     from flypad.config import load_config
     from flypad.pipeline import render_figures
