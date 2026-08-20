@@ -33,7 +33,7 @@ def ordered_condition_labels(
     """
     if group_col not in df.columns:
         return []
-    if order_col in df.columns:
+    if order_col in df.columns and order_col != group_col:
         keyed = df[[order_col, group_col]].dropna(subset=[group_col])
         if not keyed.empty:
             first = keyed.groupby(group_col, dropna=False)[order_col].min().sort_values()

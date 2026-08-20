@@ -377,6 +377,29 @@ def ci_plot(
     return ax
 
 
+def _substrate_legend_names(
+    per_fly: pd.DataFrame, sides: Sequence[str], side_col: str, label_col: str
+) -> list[str]:
+    """Legend name per arena side: its substrate label, else the side itself.
+
+    A side is named after the substrate it holds (from ``metadata.substrates`` or the
+    sidecar ``## substrates`` block) only when that is unambiguous — one distinct
+    non-empty label on the side, and a different one on the other. Unlabelled (or
+    identically labelled) experiments keep ``left`` / ``right``, which is then the only
+    thing telling the two boxes apart.
+    """
+
+    def named(side: str) -> str:
+        if label_col not in per_fly.columns or side_col not in per_fly.columns:
+            return side
+        labels = per_fly.loc[per_fly[side_col] == side, label_col].dropna().astype(str).str.strip()
+        distinct = pd.unique(labels[labels != ""])
+        return str(distinct[0]) if len(distinct) == 1 else side
+
+    names = [named(side) for side in sides]
+    return list(sides) if len(set(names)) < len(names) else names
+
+
 def substrate_comparison(
     per_fly: pd.DataFrame,
     metric: str,
@@ -384,22 +407,29 @@ def substrate_comparison(
     ax: Any | None = None,
     group_col: str = "condition_label",
     side_col: str = "substrate_side",
+    label_col: str = "substrate_label",
     rotation: float = 30.0,
     ylabel: str | None = None,
 ) -> Any:
     """Two-choice comparison: side-by-side left/right boxes per condition.
 
     Each condition gets two offset boxes (left vs right substrate), so substrate
-    preference is visible at a glance.
+    preference is visible at a glance. The legend names each side after the substrate
+    it holds (see :func:`_substrate_legend_names`), and the conditions are laid out in
+    experiment order — matching the box plot, CCDF and time course.
     """
+    from flypad.stats.grouping import ordered_condition_labels
+
     ax = _new_ax(ax)
-    conditions = sorted(per_fly[group_col].dropna().unique(), key=str)
+    conditions = ordered_condition_labels(per_fly, group_col)
     sides = [("left", PYTHON), ("right", MATLAB)]
     width, offset = 0.34, 0.2
     for ci, condition in enumerate(conditions):
         for side, color in sides:
             sign = -1 if side == "left" else 1
-            mask = (per_fly[group_col] == condition) & (per_fly[side_col] == side)
+            # Compared as strings: ordered_condition_labels() returns the labels in
+            # string form, so a numeric ``condition`` column still matches.
+            mask = (per_fly[group_col].astype(str) == condition) & (per_fly[side_col] == side)
             values = per_fly.loc[mask, metric].to_numpy(dtype=np.float64)
             values = values[np.isfinite(values)]
             if values.size == 0:
@@ -418,12 +448,11 @@ def substrate_comparison(
             box["boxes"][0].set_facecolor(color)
             box["boxes"][0].set_alpha(0.4)
     ax.set_xticks(range(len(conditions)))
-    ax.set_xticklabels(
-        [str(c) for c in conditions], rotation=rotation, ha="right" if rotation else "center"
-    )
+    ax.set_xticklabels(conditions, rotation=rotation, ha="right" if rotation else "center")
+    names = _substrate_legend_names(per_fly, [s for s, _ in sides], side_col, label_col)
     handles = [
-        Line2D([0], [0], color=PYTHON, lw=6, alpha=0.4, label="left"),
-        Line2D([0], [0], color=MATLAB, lw=6, alpha=0.4, label="right"),
+        Line2D([0], [0], color=color, lw=6, alpha=0.4, label=name)
+        for (_, color), name in zip(sides, names, strict=True)
     ]
     ax.legend(handles=handles, frameon=False, fontsize=9)
     if ylabel:

@@ -350,6 +350,44 @@ def test_substrate_comparison_two_boxes_per_condition() -> None:
     assert ax.get_legend() is not None
 
 
+def _per_fly_two_choice() -> pd.DataFrame:
+    """Two conditions x two substrates, whose experiment order is not alphabetical."""
+    return pd.DataFrame(
+        {
+            "condition": [2, 2, 1, 1],
+            "condition_label": ["24h starved", "24h starved", "fully fed", "fully fed"],
+            "substrate_side": ["left", "right", "left", "right"],
+            "substrate_label": ["10% yeast", "20mM sucrose", "10% yeast", "20mM sucrose"],
+            "n_sips": [10.0, 4.0, 8.0, 6.0],
+        }
+    )
+
+
+def test_substrate_comparison_legend_names_the_substrates() -> None:
+    ax = substrate_comparison(_per_fly_two_choice(), "n_sips")
+    labels = [t.get_text() for t in ax.get_legend().get_texts()]
+    assert labels == ["10% yeast", "20mM sucrose"]  # not "left" / "right"
+
+
+def test_substrate_comparison_falls_back_to_sides_when_unlabeled() -> None:
+    per_fly = _per_fly_two_choice().assign(substrate_label="")
+    labels = [t.get_text() for t in substrate_comparison(per_fly, "n_sips").get_legend().get_texts()]
+    assert labels == ["left", "right"]
+
+
+def test_substrate_comparison_falls_back_to_sides_when_both_the_same() -> None:
+    # Same food on both sides: the side is the only thing distinguishing the boxes.
+    per_fly = _per_fly_two_choice().assign(substrate_label="100 mM sucrose")
+    labels = [t.get_text() for t in substrate_comparison(per_fly, "n_sips").get_legend().get_texts()]
+    assert labels == ["left", "right"]
+
+
+def test_substrate_comparison_orders_conditions_by_number() -> None:
+    ax = substrate_comparison(_per_fly_two_choice(), "n_sips")
+    ticks = [t.get_text() for t in ax.get_xticklabels()]
+    assert ticks == ["fully fed", "24h starved"]  # condition 1 then 2, not alphabetical
+
+
 def test_raster_seconds_axis() -> None:
     ax = raster_plot([np.array([100, 200])], sampling_rate_hz=100)  # 1-2 s
     assert ax.get_xlabel() == "Time (s)"
