@@ -316,6 +316,35 @@ def test_tilted_boxplot_annotations_draw_brackets() -> None:
     assert "***" in [t.get_text() for t in ax.texts]  # significance marker drawn
 
 
+def test_annotation_stack_stays_inside_the_axes() -> None:
+    """Every bracket of a full 5-condition stack (10 pairs) fits within the axes."""
+    from flypad.plotting import annotate_significance
+
+    labels = list("abcde")
+    pairs = [(a, b, 0.001) for i, a in enumerate(labels) for b in labels[i + 1 :]]
+    assert len(pairs) == 10
+    _fig, ax = plt.subplots()
+    ax.set_ylim(0.0, 100.0)
+    annotate_significance(ax, pairs, {lbl: i for i, lbl in enumerate(labels)}, data_top=100.0)
+    # brackets are drawn in axes fractions on y (blended transform), so 1.0 is the top
+    assert max(float(np.max(line.get_ydata())) for line in ax.lines) <= 1.0
+    assert max(float(t.get_position()[1]) for t in ax.texts) <= 1.0
+
+
+def test_annotation_stack_leaves_the_data_room() -> None:
+    """The brackets take a bounded share of the height — the data keeps the rest."""
+    from flypad.plotting import annotate_significance
+
+    labels = list("abcde")
+    pairs = [(a, b, 0.001) for i, a in enumerate(labels) for b in labels[i + 1 :]]
+    _fig, ax = plt.subplots()
+    ax.set_ylim(0.0, 100.0)
+    annotate_significance(ax, pairs, {lbl: i for i, lbl in enumerate(labels)}, data_top=100.0)
+    lo, hi = ax.get_ylim()
+    # the default band reserves at most half the height for the brackets
+    assert (100.0 - lo) / (hi - lo) == pytest.approx(0.5, abs=1e-6)
+
+
 def test_tilted_boxplot_palette_colors_boxes() -> None:
     from matplotlib.colors import to_rgb
 
@@ -371,14 +400,18 @@ def test_substrate_comparison_legend_names_the_substrates() -> None:
 
 def test_substrate_comparison_falls_back_to_sides_when_unlabeled() -> None:
     per_fly = _per_fly_two_choice().assign(substrate_label="")
-    labels = [t.get_text() for t in substrate_comparison(per_fly, "n_sips").get_legend().get_texts()]
+    labels = [
+        t.get_text() for t in substrate_comparison(per_fly, "n_sips").get_legend().get_texts()
+    ]
     assert labels == ["left", "right"]
 
 
 def test_substrate_comparison_falls_back_to_sides_when_both_the_same() -> None:
     # Same food on both sides: the side is the only thing distinguishing the boxes.
     per_fly = _per_fly_two_choice().assign(substrate_label="100 mM sucrose")
-    labels = [t.get_text() for t in substrate_comparison(per_fly, "n_sips").get_legend().get_texts()]
+    labels = [
+        t.get_text() for t in substrate_comparison(per_fly, "n_sips").get_legend().get_texts()
+    ]
     assert labels == ["left", "right"]
 
 
@@ -557,6 +590,86 @@ def test_faceted_boxplot_one_axis_per_substrate() -> None:
     assert [ax.get_title() for ax in fig.axes] == ["sucrose", "yeast"]
     # 2 conditions -> 2 boxes on each substrate axis
     assert all(len(ax.patches) == 2 for ax in fig.axes)
+
+
+def _per_fly_skewed_substrates() -> pd.DataFrame:
+    """Two substrates an order of magnitude apart — sucrose vanishes on a shared scale."""
+    rows = []
+    for label, scale in (("sucrose", 1.0), ("yeast", 20.0)):
+        for cond in ("fed", "starved"):
+            rows += [
+                {"condition_label": cond, "substrate_label": label, "n_sips": float(v) * scale}
+                for v in range(12)
+            ]
+    return pd.DataFrame(rows)
+
+
+def _visible_xticklabels(ax: object) -> list[str]:
+    return [t.get_text() for t in ax.get_xticklabels() if t.get_visible()]  # type: ignore[attr-defined]
+
+
+def test_faceted_boxplot_scales_each_facet_independently() -> None:
+    fig = faceted_boxplot(
+        _per_fly_skewed_substrates(),
+        "n_sips",
+        facet_col="substrate_label",
+        values=["sucrose", "yeast"],
+    )
+    sucrose, yeast = fig.axes
+    # each facet fills its own axis instead of the small one collapsing onto the baseline
+    assert sucrose.get_ylim() != yeast.get_ylim()
+    assert sucrose.get_ylim()[1] < yeast.get_ylim()[1] / 5
+
+
+def test_faceted_boxplot_share_y_ties_the_facets() -> None:
+    fig = faceted_boxplot(
+        _per_fly_skewed_substrates(),
+        "n_sips",
+        facet_col="substrate_label",
+        values=["sucrose", "yeast"],
+        share_y=True,
+    )
+    sucrose, yeast = fig.axes
+    assert sucrose.get_ylim() == yeast.get_ylim()
+
+
+def test_faceted_boxplot_stacks_facets_vertically_by_default() -> None:
+    fig = faceted_boxplot(
+        _per_fly_two_substrates(),
+        "n_sips",
+        facet_col="substrate_label",
+        values=["sucrose", "yeast"],
+    )
+    first, second = fig.axes
+    assert first.get_position().y0 > second.get_position().y0  # first facet on top
+    # the shared condition axis is drawn once, under the bottom facet
+    assert not _visible_xticklabels(first)
+    assert _visible_xticklabels(second)
+
+
+def test_faceted_boxplot_columns_layout_puts_facets_side_by_side() -> None:
+    fig = faceted_boxplot(
+        _per_fly_two_substrates(),
+        "n_sips",
+        facet_col="substrate_label",
+        values=["sucrose", "yeast"],
+        layout="columns",
+    )
+    first, second = fig.axes
+    assert first.get_position().x0 < second.get_position().x0
+    assert _visible_xticklabels(first) and _visible_xticklabels(second)  # each needs labels
+
+
+def test_faceted_timecourse_captions_time_once_when_stacked() -> None:
+    fig = faceted_timecourse(
+        _events_two_substrates(),
+        1000,
+        facet_col="substrate_label",
+        values=["sucrose", "yeast"],
+        sampling_rate_hz=100,
+    )
+    top, bottom = fig.axes
+    assert top.get_xlabel() == "" and bottom.get_xlabel().startswith("Time")
 
 
 def test_faceted_ccdf_shares_one_legend() -> None:

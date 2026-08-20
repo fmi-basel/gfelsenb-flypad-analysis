@@ -631,6 +631,11 @@ def render_figures(
         "only_significant": config.plotting.annotate_only_significant,
         "show_pvalues": config.plotting.annotate_p_values,
     }
+    # Facet arrangement, shared by every faceted figure (the dashboard is always stacked).
+    facet_style: dict[str, Any] = {
+        "layout": config.plotting.facet_layout,
+        "share_y": config.plotting.facet_share_y,
+    }
 
     def save(fig: object, stem: str) -> None:
         _emit(progress, f"figure {stem}")
@@ -648,6 +653,7 @@ def render_figures(
                 central="median",
                 noun=facet_noun,
                 annotations_by_facet=box_pairs_by_facet,
+                share_y=config.plotting.facet_share_y,
                 **box_style,
             )
         else:
@@ -665,6 +671,7 @@ def render_figures(
                 ylabel=ylabel,
                 noun=facet_noun,
                 annotations_by_facet=box_pairs_by_facet,
+                **facet_style,
                 **box_style,
             )
         else:
@@ -683,6 +690,7 @@ def render_figures(
                 palette=palette,
                 xlabel=ylabel,
                 noun=facet_noun,
+                **facet_style,
             )
         else:
             fig = ccdf_plot(groups, palette=palette, xlabel=ylabel).figure
@@ -700,6 +708,7 @@ def render_figures(
                 sampling_rate_hz=rate,
                 palette=palette,
                 noun=facet_noun,
+                **facet_style,
             )
         else:
             series = cumulative_timecourse_by_condition(

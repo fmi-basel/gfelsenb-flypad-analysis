@@ -56,6 +56,24 @@ time-course legends.
 figures **only**, so the exported tables keep their canonical labels. Use it for a display
 rename (a poster figure) rather than to name the experiment.
 
+## Faceting
+
+`plotting.facet_by` splits the box plot, CCDF and time course into one axis per
+`substrate` (default), per input `file`, or `none` for a single pooled axis. Two options
+control how that strip is drawn:
+
+| Option | Default | Effect |
+|--------|---------|--------|
+| `facet_layout` | `rows` | Facets stacked top-to-bottom; the shared condition axis is drawn once, under the bottom facet. `columns` puts them side by side. |
+| `facet_share_y` | `false` | Each facet scales to its own data. Set `true` to tie every facet to one metric scale. |
+
+Independent scales are the default because a substrate the flies barely touched is
+otherwise flattened to a line beside one they fed on heavily. Turn `facet_share_y` on
+when comparing magnitudes *across* facets matters more than reading the smaller one — the
+significance brackets then align across facets too, since they anchor to the tallest.
+
+On the CCDF the metric lives on the x-axis, so `facet_share_y` ties the x-axes there.
+
 ## Key sections
 
 | Section | What it controls |

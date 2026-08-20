@@ -104,6 +104,7 @@ def annotate_significance(
     data_top: float,
     base: float = 0.05,
     step: float = 0.085,
+    band: float = 0.5,
     only_significant: bool = False,
     show_pvalues: bool = False,
     alpha: float = 0.05,
@@ -116,6 +117,11 @@ def annotate_significance(
     is identical on linear and log axes, and the y-limit is grown to make room.
     ``only_significant`` drops pairs with ``p >= alpha``; ``show_pvalues`` prints the exact
     p instead of stars. Pairs whose labels are absent are skipped.
+
+    The stack is laid out in *final* axes fractions and never leaves the axes: ``band``
+    caps its total height (the step shrinks once there are enough pairs to exceed it — 5
+    conditions already means 10 brackets), so the data always keeps at least ``1 - band``
+    of the height instead of being squashed into a strip below a tower of brackets.
     """
     drawable = [(a, b, p) for a, b, p in pairs if a in positions and b in positions]
     if only_significant:
@@ -124,10 +130,18 @@ def annotate_significance(
         return
     drawable.sort(key=lambda t: abs(positions[t[0]] - positions[t[1]]))
 
+    # Shrink the step until the whole stack — base gap, levels, tick, marker text — fits
+    # in `band`: headroom(step) = base + 0.06 + step * (levels - 0.7).
+    levels = len(drawable)
+    budget = max(band - base - 0.06, 0.02)
+    step = min(step, budget / max(levels - 0.7, 1.0))
     tick = step * 0.3
-    # Reserve the headroom *first*, so the fractions below map to their final positions.
-    needed = _axes_fraction_y(ax, data_top) + base + (len(drawable) - 1) * step + tick + 0.06
-    _expand_top(ax, needed)
+    # Grow the y-limit so the data lands at `data_frac` and the stack fits in what is
+    # left. The fractions below are then read off the *expanded* axes, so the topmost
+    # bracket and its marker stay inside them.
+    headroom = base + (levels - 1) * step + tick + 0.06
+    data_frac = max(1.0 - headroom, 0.05)
+    _expand_top(ax, _axes_fraction_y(ax, data_top) / data_frac)
 
     y0 = _axes_fraction_y(ax, data_top) + base
     trans = blended_transform_factory(ax.transData, ax.transAxes)

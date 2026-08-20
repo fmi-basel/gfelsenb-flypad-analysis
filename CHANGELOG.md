@@ -14,7 +14,16 @@ All notable changes to **flypad** are documented here. The format follows
   (`corrected` removes them; `matlab_compat` only reports the fractions).
 - **Alignment** — per-arena alignment to manual arena-fill timestamps.
 
+### Changed
+- Facets now stack top-to-bottom and scale to their own data
+  (`plotting.facet_layout`, `plotting.facet_share_y`), so a low-intake substrate stays
+  readable beside a high-intake one. Set `facet_share_y: true` for the previous single
+  shared scale.
+
 ### Fixed
+- Significance brackets are laid out in final axes fractions and no longer escape the
+  axes over the facet title; with many pairs the stack compresses so the data always
+  keeps at least half the axis height.
 - `metadata.conditions` / `metadata.substrates` are applied to the channel map, so the
   configured labels reach the exported tables and every figure instead of only
   `config.used.yaml` ([#2](https://github.com/fmi-basel/gfelsenb-flypad-analysis/issues/2)).
