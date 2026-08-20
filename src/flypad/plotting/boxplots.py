@@ -104,6 +104,7 @@ def annotate_significance(
     data_top: float,
     base: float = 0.05,
     step: float = 0.085,
+    band: float = 0.5,
     only_significant: bool = False,
     show_pvalues: bool = False,
     alpha: float = 0.05,
@@ -116,6 +117,11 @@ def annotate_significance(
     is identical on linear and log axes, and the y-limit is grown to make room.
     ``only_significant`` drops pairs with ``p >= alpha``; ``show_pvalues`` prints the exact
     p instead of stars. Pairs whose labels are absent are skipped.
+
+    The stack is laid out in *final* axes fractions and never leaves the axes: ``band``
+    caps its total height (the step shrinks once there are enough pairs to exceed it — 5
+    conditions already means 10 brackets), so the data always keeps at least ``1 - band``
+    of the height instead of being squashed into a strip below a tower of brackets.
     """
     drawable = [(a, b, p) for a, b, p in pairs if a in positions and b in positions]
     if only_significant:
@@ -124,10 +130,18 @@ def annotate_significance(
         return
     drawable.sort(key=lambda t: abs(positions[t[0]] - positions[t[1]]))
 
+    # Shrink the step until the whole stack — base gap, levels, tick, marker text — fits
+    # in `band`: headroom(step) = base + 0.06 + step * (levels - 0.7).
+    levels = len(drawable)
+    budget = max(band - base - 0.06, 0.02)
+    step = min(step, budget / max(levels - 0.7, 1.0))
     tick = step * 0.3
-    # Reserve the headroom *first*, so the fractions below map to their final positions.
-    needed = _axes_fraction_y(ax, data_top) + base + (len(drawable) - 1) * step + tick + 0.06
-    _expand_top(ax, needed)
+    # Grow the y-limit so the data lands at `data_frac` and the stack fits in what is
+    # left. The fractions below are then read off the *expanded* axes, so the topmost
+    # bracket and its marker stay inside them.
+    headroom = base + (levels - 1) * step + tick + 0.06
+    data_frac = max(1.0 - headroom, 0.05)
+    _expand_top(ax, _axes_fraction_y(ax, data_top) / data_frac)
 
     y0 = _axes_fraction_y(ax, data_top) + base
     trans = blended_transform_factory(ax.transData, ax.transAxes)
@@ -377,6 +391,29 @@ def ci_plot(
     return ax
 
 
+def _substrate_legend_names(
+    per_fly: pd.DataFrame, sides: Sequence[str], side_col: str, label_col: str
+) -> list[str]:
+    """Legend name per arena side: its substrate label, else the side itself.
+
+    A side is named after the substrate it holds (from ``metadata.substrates`` or the
+    sidecar ``## substrates`` block) only when that is unambiguous — one distinct
+    non-empty label on the side, and a different one on the other. Unlabelled (or
+    identically labelled) experiments keep ``left`` / ``right``, which is then the only
+    thing telling the two boxes apart.
+    """
+
+    def named(side: str) -> str:
+        if label_col not in per_fly.columns or side_col not in per_fly.columns:
+            return side
+        labels = per_fly.loc[per_fly[side_col] == side, label_col].dropna().astype(str).str.strip()
+        distinct = pd.unique(labels[labels != ""])
+        return str(distinct[0]) if len(distinct) == 1 else side
+
+    names = [named(side) for side in sides]
+    return list(sides) if len(set(names)) < len(names) else names
+
+
 def substrate_comparison(
     per_fly: pd.DataFrame,
     metric: str,
@@ -384,22 +421,29 @@ def substrate_comparison(
     ax: Any | None = None,
     group_col: str = "condition_label",
     side_col: str = "substrate_side",
+    label_col: str = "substrate_label",
     rotation: float = 30.0,
     ylabel: str | None = None,
 ) -> Any:
     """Two-choice comparison: side-by-side left/right boxes per condition.
 
     Each condition gets two offset boxes (left vs right substrate), so substrate
-    preference is visible at a glance.
+    preference is visible at a glance. The legend names each side after the substrate
+    it holds (see :func:`_substrate_legend_names`), and the conditions are laid out in
+    experiment order — matching the box plot, CCDF and time course.
     """
+    from flypad.stats.grouping import ordered_condition_labels
+
     ax = _new_ax(ax)
-    conditions = sorted(per_fly[group_col].dropna().unique(), key=str)
+    conditions = ordered_condition_labels(per_fly, group_col)
     sides = [("left", PYTHON), ("right", MATLAB)]
     width, offset = 0.34, 0.2
     for ci, condition in enumerate(conditions):
         for side, color in sides:
             sign = -1 if side == "left" else 1
-            mask = (per_fly[group_col] == condition) & (per_fly[side_col] == side)
+            # Compared as strings: ordered_condition_labels() returns the labels in
+            # string form, so a numeric ``condition`` column still matches.
+            mask = (per_fly[group_col].astype(str) == condition) & (per_fly[side_col] == side)
             values = per_fly.loc[mask, metric].to_numpy(dtype=np.float64)
             values = values[np.isfinite(values)]
             if values.size == 0:
@@ -418,12 +462,11 @@ def substrate_comparison(
             box["boxes"][0].set_facecolor(color)
             box["boxes"][0].set_alpha(0.4)
     ax.set_xticks(range(len(conditions)))
-    ax.set_xticklabels(
-        [str(c) for c in conditions], rotation=rotation, ha="right" if rotation else "center"
-    )
+    ax.set_xticklabels(conditions, rotation=rotation, ha="right" if rotation else "center")
+    names = _substrate_legend_names(per_fly, [s for s, _ in sides], side_col, label_col)
     handles = [
-        Line2D([0], [0], color=PYTHON, lw=6, alpha=0.4, label="left"),
-        Line2D([0], [0], color=MATLAB, lw=6, alpha=0.4, label="right"),
+        Line2D([0], [0], color=color, lw=6, alpha=0.4, label=name)
+        for (_, color), name in zip(sides, names, strict=True)
     ]
     ax.legend(handles=handles, frameon=False, fontsize=9)
     if ylabel:

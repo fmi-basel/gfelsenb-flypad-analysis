@@ -149,6 +149,17 @@ def test_metadata_conditions_override_renames_table_labels(tmp_path: Path) -> No
     assert set(per_fly["condition_label"]) == {"Renamed Condition"}
 
 
+def test_metadata_substrates_override_renames_table_labels(tmp_path: Path) -> None:
+    data_dir, _ = _make_dataset(tmp_path)
+    cfg = _cfg_with(tmp_path, 'metadata:\n  substrates: ["10% yeast", "20mM sucrose"]\n')
+    out = tmp_path / "results"
+    _invoke(["run", str(data_dir), "-c", str(cfg), "-o", str(out), "--no-plots"])
+    per_fly = pd.read_csv(out / "per_fly.csv")
+    left = per_fly[per_fly["substrate_side"] == "left"]["substrate_label"]
+    right = per_fly[per_fly["substrate_side"] == "right"]["substrate_label"]
+    assert set(left) == {"10% yeast"} and set(right) == {"20mM sucrose"}
+
+
 def test_plotting_condition_labels_do_not_touch_tables(tmp_path: Path) -> None:
     data_dir, _ = _make_dataset(tmp_path)
     # plot-only rename: the exported table keeps the canonical "condition 1" label.

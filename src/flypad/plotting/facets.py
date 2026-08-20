@@ -1,17 +1,20 @@
 """Faceted figures: one axis per facet — substrate or input file (design §10, M6).
 
 When an experiment spans more than one substrate or recording, the per-condition box
-plot, CCDF and cumulative time course read far better split into a row of subplots —
-one axis per facet — sharing a y-axis and colour palette so conditions stay comparable
-across facets. These builders wrap the single-axis plotters (``tilted_boxplot`` /
-``ccdf_plot`` / ``shaded_lines``); the facet resolution itself lives in
-:mod:`flypad.stats.grouping` so the statistics use exactly the same grouping.
+plot, CCDF and cumulative time course read far better split into a strip of subplots —
+one axis per facet, stacked top-to-bottom by default (``config.plotting.facet_layout``)
+and sharing a colour palette so conditions stay recognisable across facets. Each facet
+scales to its own data unless ``share_y`` ties them together: one shared scale makes
+magnitudes comparable by eye, but flattens a facet the flies barely fed on. These
+builders wrap the single-axis plotters (``tilted_boxplot`` / ``ccdf_plot`` /
+``shaded_lines``); the facet resolution itself lives in :mod:`flypad.stats.grouping` so
+the statistics use exactly the same grouping.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import Any
+from typing import Any, Literal
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -44,6 +47,9 @@ from flypad.stats.summaries import cumulative_timecourse_by_condition
 
 FloatArray = npt.NDArray[np.float64]
 
+#: How the facets are arranged (see ``config.plotting.facet_layout``).
+FacetLayout = Literal["rows", "columns"]
+
 # Re-exported for backwards compatibility (these now live in flypad.stats.grouping).
 __all__ = [
     "FacetBy",
@@ -58,14 +64,39 @@ __all__ = [
 ]
 
 
-def _facet_row(
-    n: int, *, width: float, height: float = 4.0, sharex: bool = False
+def _facet_strip(
+    n: int,
+    *,
+    width: float,
+    height: float = 4.0,
+    sharex: bool = False,
+    sharey: bool = False,
+    layout: FacetLayout = "rows",
 ) -> tuple[Any, list[Any]]:
-    """A one-row grid of ``n`` subplots sharing the y-axis (and optionally the x-axis)."""
+    """A strip of ``n`` subplots: stacked top→bottom (``rows``) or side by side (``columns``).
+
+    ``sharey`` / ``sharex`` tie the facets to a single scale. Both default to off, so each
+    facet autoscales to its own data — a substrate the flies barely touch stays legible
+    beside one they feed on heavily, which a shared scale would flatten to a line.
+    """
+    stacked = layout == "rows"
+    nrows, ncols = (n, 1) if stacked else (1, n)
+    figsize = (width, height * n) if stacked else (width * n, height)
     fig, axes = plt.subplots(
-        1, n, figsize=(width * n, height), sharey=True, sharex=sharex, squeeze=False
+        nrows, ncols, figsize=figsize, sharey=sharey, sharex=sharex, squeeze=False
     )
-    return fig, list(axes[0])
+    return fig, list(axes[:, 0] if stacked else axes[0])
+
+
+def _label_bottom_only(axes: Sequence[Any]) -> None:
+    """Keep the x-label on the bottom axis of a stacked, x-shared strip.
+
+    ``plt.subplots(sharex=True)`` hides the inner tick labels, but the single-axis
+    plotters set their x-label afterwards, which would leave every facet but the bottom
+    one captioning tick numbers it does not draw.
+    """
+    for ax in axes[:-1]:
+        ax.set_xlabel("")
 
 
 def _condition_groups(
@@ -117,51 +148,77 @@ def faceted_boxplot(
     yscale: str = "linear",
     only_significant: bool = False,
     show_pvalues: bool = False,
+    layout: FacetLayout = "rows",
+    share_y: bool = False,
 ) -> Any:
     """Per-condition box plot faceted into one axis per ``facet_col`` value.
 
     ``annotations_by_facet`` maps each facet value to its list of
-    ``(label_a, label_b, p_value)`` pairwise comparisons, drawn as significance brackets;
-    with a shared y-axis the brackets are placed from the tallest facet so they align.
+    ``(label_a, label_b, p_value)`` pairwise comparisons, drawn as significance brackets.
+    With ``share_y`` the brackets are placed from the tallest facet so they align; with
+    independent axes each facet anchors to its own data.
     """
-    fig, axes = _facet_row(len(values), width=4.6)
+    stacked = layout == "rows"
+    # Stacked facets repeat one categorical x-axis, so it is shared and drawn once, under
+    # the bottom facet. Side-by-side facets each need their own condition labels.
+    fig, axes = _facet_strip(len(values), width=4.6, sharex=stacked, sharey=share_y, layout=layout)
     order = ordered_condition_labels(per_fly, group_col)
     drawn: list[tuple[Any, str, dict[str, FloatArray]]] = []
     for i, (ax, val) in enumerate(zip(axes, values, strict=True)):
         subset = per_fly[per_fly[facet_col].astype(str) == val]
         groups = _condition_groups(subset, metric, group_col, order)
+        # Every facet carries the unit unless they all share one y-axis, where the
+        # leftmost label speaks for the row.
+        show_label = stacked or not share_y or i == 0
         tilted_boxplot(
-            groups, ax=ax, palette=palette, ylabel=ylabel if i == 0 else None, yscale=yscale
+            groups, ax=ax, palette=palette, ylabel=ylabel if show_label else None, yscale=yscale
         )
         ax.set_title(val)
         drawn.append((ax, val, groups))
+    if stacked:
+        _label_bottom_only(axes)
     if annotations_by_facet:
         _annotate_shared(
             drawn,
             annotations_by_facet,
+            share_y=share_y,
             only_significant=only_significant,
             show_pvalues=show_pvalues,
         )
     suptitle(fig, f"{metric_label(metric)} by {noun}")
-    fig.tight_layout(rect=(0, 0, 1, 0.94))
+    fig.tight_layout(rect=(0, 0, 1, 0.94 if not stacked else 1 - 0.3 / (4.0 * len(values))))
     return fig
+
+
+def _facet_top(groups: Mapping[str, FloatArray]) -> float | None:
+    """Tallest data point across a facet's conditions, or ``None`` when it has no data."""
+    tops = [float(np.nanmax(a)) for a in groups.values() if a.size]
+    return max(tops) if tops else None
 
 
 def _annotate_shared(
     drawn: Sequence[tuple[Any, str, dict[str, FloatArray]]],
     annotations_by_facet: Mapping[str, Sequence[tuple[str, str, float]]],
     *,
+    share_y: bool = False,
     only_significant: bool = False,
     show_pvalues: bool = False,
 ) -> None:
-    """Draw brackets on sharey facets, anchored to the tallest facet so they line up."""
-    tops = [float(np.nanmax(a)) for _ax, _v, groups in drawn for a in groups.values() if a.size]
+    """Draw the significance brackets on each facet's box panel.
+
+    On a shared y-axis every facet anchors to the tallest facet, so the brackets line up
+    across the figure. On independent axes each facet anchors to its *own* data —
+    anchoring to a taller neighbour would stack the brackets far above the facet's range
+    and re-inflate the very axis the independent scaling was meant to keep tight.
+    """
+    tops = [t for _ax, _v, groups in drawn if (t := _facet_top(groups)) is not None]
     if not tops:
         return
-    data_top = max(tops)
+    tallest = max(tops)
     for ax, val, groups in drawn:
         pairs = annotations_by_facet.get(val)
-        if pairs:
+        data_top = tallest if share_y else _facet_top(groups)
+        if pairs and data_top is not None:
             annotate_significance(
                 ax,
                 pairs,
@@ -182,13 +239,17 @@ def faceted_ccdf(
     palette: Palette | None = None,
     xlabel: str | None = None,
     noun: str = "substrate",
+    layout: FacetLayout = "rows",
+    share_y: bool = False,
 ) -> Any:
     """Per-condition CCDF faceted into one axis per ``facet_col`` value (shared legend).
 
-    The x-axis is shared across facets: with independent ranges two panels can look alike
-    while covering very different value spans.
+    The CCDF puts the metric on **x**, so ``share_y`` — "share the metric scale" — ties
+    the x-axes here. Shared, two panels covering very different value spans can no longer
+    look alike; independent, each panel spends its full width on its own range.
     """
-    fig, axes = _facet_row(len(values), width=5.0, sharex=True)
+    # y is a survival probability here — always the same 0-1 range, so always shared.
+    fig, axes = _facet_strip(len(values), width=5.0, sharex=share_y, sharey=True, layout=layout)
     order = ordered_condition_labels(per_fly, group_col)
     labels = list(_condition_groups(per_fly, metric, group_col, order))
     for ax, val in zip(axes, values, strict=True):
@@ -196,6 +257,8 @@ def faceted_ccdf(
         groups = _condition_groups(subset, metric, group_col, order)
         ccdf_plot(groups, ax=ax, palette=palette, xlabel=xlabel or metric, legend=False)
         ax.set_title(val)
+    if layout == "rows" and share_y:  # one shared metric axis, drawn once at the bottom
+        _label_bottom_only(axes)
     _shared_legend(fig, palette, labels)
     suptitle(fig, f"{metric_label(metric)} — CCDF by {noun}")
     fig.tight_layout(rect=(0, 0.06, 1, 0.94))
@@ -212,9 +275,17 @@ def faceted_timecourse(
     sampling_rate_hz: int = 100,
     palette: Palette | None = None,
     noun: str = "substrate",
+    layout: FacetLayout = "rows",
+    share_y: bool = False,
 ) -> Any:
-    """Cumulative sip time course faceted into one axis per ``facet_col`` value."""
-    fig, axes = _facet_row(len(values), width=6.0, height=3.4)
+    """Cumulative sip time course faceted into one axis per ``facet_col`` value.
+
+    Time is the same span in every facet, so the x-axis is always shared (drawn once
+    under a stacked strip); ``share_y`` ties the cumulative-sip axes.
+    """
+    fig, axes = _facet_strip(
+        len(values), width=6.0, height=3.4, sharex=True, sharey=share_y, layout=layout
+    )
     labels = ordered_condition_labels(events, group_col)
     for ax, val in zip(axes, values, strict=True):
         subset = events[events[facet_col].astype(str) == val]
@@ -224,6 +295,8 @@ def faceted_timecourse(
         ordered = {lbl: series[lbl] for lbl in labels if lbl in series}
         shaded_lines(ordered, ax=ax, palette=palette, legend=False)
         ax.set_title(val)
+    if layout == "rows":  # time is shared, so it is captioned once under the strip
+        _label_bottom_only(axes)
     _shared_legend(fig, palette, labels)
     suptitle(fig, f"Cumulative sips by {noun}")
     fig.tight_layout(rect=(0, 0.06, 1, 0.92))
@@ -246,23 +319,27 @@ def faceted_dashboard(
     yscale: str = "linear",
     only_significant: bool = False,
     show_pvalues: bool = False,
+    share_y: bool = False,
 ) -> Any:
     """Standalone dashboard with one row of panels per facet (top → bottom).
 
     Each row mirrors :func:`~flypad.plotting.cdf.standalone_dashboard`: the per-fly box
     plot, a central-tendency summary (``central`` = ``"median"`` → median+IQR, ``"mean"``
     → mean+95% CI), and the metric's CCDF. The leftmost panel of each row is titled with
-    the facet value; condition colours are shared across every row. Each *column* shares a
-    y-axis so rows are directly comparable, the legend is drawn once, and
-    ``annotations_by_facet`` puts significance brackets on each row's box panel.
+    the facet value; condition colours are shared across every row, the legend is drawn
+    once, and ``annotations_by_facet`` puts significance brackets on each row's box panel.
+    ``share_y`` ties each *column* to one scale, making the rows directly comparable at
+    the cost of flattening a low-intake facet.
     """
     order = ordered_condition_labels(per_fly, group_col)
     if palette is None:
         palette = condition_palette(order, sort=False)
     ann = annotations_by_facet or {}
     n = len(values)
-    # sharey="col": rows are stacked for comparison, so each column must share a scale.
-    fig, axes = plt.subplots(n, 3, figsize=(13.5, 4.0 * n), squeeze=False, sharey="col")
+    # "col": the panels differ across a row, so only same-panel columns can share a scale.
+    fig, axes = plt.subplots(
+        n, 3, figsize=(13.5, 4.0 * n), squeeze=False, sharey="col" if share_y else False
+    )
     central_title = "mean ± 95% CI" if central == "mean" else "median ± IQR"
     label = metric_label(metric)
     box_rows: list[tuple[Any, str, dict[str, FloatArray]]] = []
@@ -285,7 +362,11 @@ def faceted_dashboard(
         axes[r][2].set_title("CCDF")
     if ann:
         _annotate_shared(
-            box_rows, ann, only_significant=only_significant, show_pvalues=show_pvalues
+            box_rows,
+            ann,
+            share_y=share_y,
+            only_significant=only_significant,
+            show_pvalues=show_pvalues,
         )
     suptitle(fig, title or f"{label} dashboard by {noun}")
     fig.tight_layout(rect=(0, 0, 1, 1 - 0.4 / (4.0 * n)))

@@ -532,6 +532,15 @@ def test_ordered_condition_labels_falls_back_to_sorted() -> None:
     assert ordered_condition_labels(df) == ["a", "b", "c"]
 
 
+def test_ordered_condition_labels_groups_by_the_order_column_itself() -> None:
+    from flypad.stats import ordered_condition_labels
+
+    # Unlabelled experiment: callers group by the numeric code, which is also the order
+    # column — grouping it against itself must not raise.
+    df = pd.DataFrame({"condition": [3, 1, 2]})
+    assert ordered_condition_labels(df, "condition") == ["1", "2", "3"]
+
+
 def test_ranksum_test_matches_scipy() -> None:
     from scipy.stats import ranksums
 

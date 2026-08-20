@@ -216,6 +216,15 @@ class Plotting(BaseModel):
     #   "file"      — one axis per input recording, titled by its timestamp;
     #   "none"      — a single pooled axis.
     facet_by: Literal["substrate", "file", "none"] = "substrate"
+    # How the facets are arranged: stacked top-to-bottom ("rows", default — the shared
+    # categorical x-axis is then drawn once, under the bottom facet) or side by side
+    # ("columns").
+    facet_layout: Literal["rows", "columns"] = "rows"
+    # Tie every facet to one metric scale (the y-axis, or the x-axis of the CCDF where the
+    # metric lives on x). Off by default: each facet autoscales to its own data, so a
+    # low-intake substrate stays readable next to a high-intake one. Turn it on to compare
+    # magnitudes across facets by eye — at the cost of flattening the smaller facet.
+    facet_share_y: bool = False
     # Draw pairwise-comparison significance brackets (from the comparisons table) on the
     # box plot when a comparisons table is available.
     annotate_stats: bool = True

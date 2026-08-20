@@ -30,16 +30,56 @@ acquisition:
   duration_samples: 425391
 metadata:
   channels_per_board_position: 8
+  substrates: ["10% yeast", "20 mM sucrose"]
   conditions: ["fully fed", "24h wet starved", "44h wet starved", "...", "..."]
 output:
   formats: [parquet, csv]
 ```
+
+## Condition and substrate labels
+
+`metadata.conditions` and `metadata.substrates` name the experiment's groups. Both apply
+**positionally** to the discovered channel map:
+
+* `conditions[k - 1]` becomes the `condition_label` of condition number *k* — the numbering
+  of the `## conditions` block in the `exp_*.txt` sidecars, or of the `C<cond>` filename
+  tokens when there are no sidecars.
+* `substrates[s - 1]` becomes the `substrate_label` of substrate *s* (1 = left, 2 = right).
+
+Codes past the end of a list keep the label discovered from the data, so a short list
+renames only its leading conditions. Because every table and figure derives its labels from
+that one map, the names flow into `per_fly` / `events` / `per_condition` / `comparisons`
+(CSV and Parquet alike), the box-plot tick labels, the facet titles, and the raster and
+time-course legends.
+
+`plotting.condition_labels` is different: it is an explicit `old: new` mapping applied to
+figures **only**, so the exported tables keep their canonical labels. Use it for a display
+rename (a poster figure) rather than to name the experiment.
+
+## Faceting
+
+`plotting.facet_by` splits the box plot, CCDF and time course into one axis per
+`substrate` (default), per input `file`, or `none` for a single pooled axis. Two options
+control how that strip is drawn:
+
+| Option | Default | Effect |
+|--------|---------|--------|
+| `facet_layout` | `rows` | Facets stacked top-to-bottom; the shared condition axis is drawn once, under the bottom facet. `columns` puts them side by side. |
+| `facet_share_y` | `false` | Each facet scales to its own data. Set `true` to tie every facet to one metric scale. |
+
+Independent scales are the default because a substrate the flies barely touched is
+otherwise flattened to a line beside one they fed on heavily. Turn `facet_share_y` on
+when comparing magnitudes *across* facets matters more than reading the smaller one — the
+significance brackets then align across facets too, since they anchor to the tallest.
+
+On the CCDF the metric lives on the x-axis, so `facet_share_y` ties the x-axes there.
 
 ## Key sections
 
 | Section | What it controls |
 |---------|------------------|
 | `hardware` / `acquisition` | channel count, sampling rate, duration, dtype |
+| `metadata` | board geometry, condition / substrate labels |
 | `quality_control` | spill / unconnected thresholds |
 | `preprocessing` | median kernel, baseline span, edge handling |
 | `activity_bouts` | RMS window / threshold |
@@ -47,7 +87,7 @@ output:
 | `feeding_bursts` | IFI criterion, minimum sips per burst |
 | `non_eaters` | per-substrate / global removal thresholds |
 | `stats` | permutation count, CI level, multiple-comparison method |
-| `plotting` | `vector_format` (pdf/eps/svg/none), dpi |
+| `plotting` | `vector_format` (pdf/eps/svg/none), dpi, faceting, display-only labels |
 
 Every field, with its type/default/bounds, is in the [API reference](api.md) (the Pydantic
 models) and the exported JSON-Schema.

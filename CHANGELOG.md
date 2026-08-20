@@ -4,6 +4,32 @@ All notable changes to **flypad** are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **Faceting & pairwise stats** — one axis per substrate/recording (`plotting.facet_by`)
+  with a shared legend, a tidy `comparisons` table, and significance brackets on the box
+  plots.
+- **QC** — configurable automatic removal of spill-saturated and unconnected channels
+  (`corrected` removes them; `matlab_compat` only reports the fractions).
+- **Alignment** — per-arena alignment to manual arena-fill timestamps.
+
+### Changed
+- Facets now stack top-to-bottom and scale to their own data
+  (`plotting.facet_layout`, `plotting.facet_share_y`), so a low-intake substrate stays
+  readable beside a high-intake one. Set `facet_share_y: true` for the previous single
+  shared scale.
+
+### Fixed
+- Significance brackets are laid out in final axes fractions and no longer escape the
+  axes over the facet title; with many pairs the stack compresses so the data always
+  keeps at least half the axis height.
+- `metadata.conditions` / `metadata.substrates` are applied to the channel map, so the
+  configured labels reach the exported tables and every figure instead of only
+  `config.used.yaml` ([#2](https://github.com/fmi-basel/gfelsenb-flypad-analysis/issues/2)).
+- The two-choice substrate figure names its legend after the substrates rather than
+  `left` / `right`, and orders conditions by experiment sequence like the other figures.
+
 ## [0.1.0] - 2026-06-26
 
 First public release — the full flyPAD analysis pipeline, faithful to the MATLAB

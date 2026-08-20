@@ -95,6 +95,10 @@ module = "flypad.gui.*"
 disallow_subclassing_any = false
 disallow_untyped_calls = false
 warn_unused_ignores = false
+# Same reason: without the extra installed, every Qt widget accessor returns Any, so
+# reading a value back out of one ("QLineEdit.text()") trips warn_return_any. CI syncs
+# without the `gui` group, which is why this only ever fired there.
+warn_return_any = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
