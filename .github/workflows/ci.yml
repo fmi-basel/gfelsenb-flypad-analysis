@@ -4,6 +4,10 @@ on:
   push:
   pull_request:
 
+# Two jobs on purpose. `test` syncs WITHOUT the optional `gui` group, which is how an
+# ordinary install looks and is the only thing that proves the package still imports and
+# type-checks when Qt is absent. `gui` installs the extra and exercises the desktop app.
+# Collapsing them into one job would silently drop the first guarantee.
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -36,3 +40,52 @@ jobs:
 
       - name: Tests (pytest)
         run: uv run pytest
+
+      - name: Assert the default sync has no Qt
+        # If Qt ever leaks into the default sync, this job stops testing the no-extra
+        # path and the `gui` job becomes the only GUI coverage — silently.
+        run: |
+          if uv run python -c "import qtpy" 2>/dev/null; then
+            echo "::error::qtpy is installed in the default sync; the no-gui path is no longer tested"
+            exit 1
+          fi
+          echo "ok: qtpy absent, so test_gui.py skipped as intended"
+
+  gui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Set up Python 3.12
+        run: uv python install 3.12
+
+      - name: Qt runtime libraries
+        # PySide6 dlopens these even under the offscreen platform plugin; the GitHub
+        # runner image does not ship them.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libegl1 libopengl0 libxkbcommon0 libdbus-1-3
+
+      - name: Sync (locked, with the gui group)
+        run: uv sync --frozen --group gui --python 3.12
+
+      - name: Assert Qt is importable
+        # test_gui.py skips itself when the extra is missing, so a failed install would
+        # otherwise show up as a green job that tested nothing. Fail loudly instead.
+        run: uv run python -c "import qtpy, PySide6; print(qtpy.API_NAME, PySide6.__version__)"
+
+      - name: Types (mypy, with real Qt stubs)
+        # Worth repeating here: without PySide6 every widget accessor is `Any`, so this
+        # is the only run that type-checks the GUI against actual Qt signatures.
+        run: uv run mypy src
+
+      - name: GUI tests (offscreen)
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: uv run pytest tests/test_gui.py -q
