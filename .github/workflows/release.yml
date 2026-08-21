@@ -42,8 +42,16 @@ jobs:
   publish:
     needs: smoke
     runs-on: ubuntu-latest
-    # Configure a PyPI "trusted publisher" for this repo + the `pypi` environment,
-    # then this step publishes automatically on tag. Until then it simply no-ops on PRs.
+    # Opt-in, and off by default: flypad is not on PyPI, so without this guard every tag
+    # would build and smoke-test cleanly and then fail red on a publish that was never
+    # configured. Skipped shows as grey, which is the honest signal for "not enabled".
+    #
+    # To publish to PyPI: register a trusted publisher on PyPI for this repository
+    # (workflow `release.yml`, environment `pypi`), create the `pypi` environment under
+    # Settings → Environments, then set the repository variable PYPI_PUBLISH to "true"
+    # (Settings → Secrets and variables → Actions → Variables). No workflow edit needed.
+    # Note that publishing is irreversible: a version, once accepted, cannot be reused.
+    if: vars.PYPI_PUBLISH == 'true'
     environment: pypi
     permissions:
       id-token: write
