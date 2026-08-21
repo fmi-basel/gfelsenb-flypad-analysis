@@ -32,6 +32,8 @@ metadata:
   channels_per_board_position: 8
   substrates: ["10% yeast", "20 mM sucrose"]
   conditions: ["fully fed", "24h wet starved", "44h wet starved", "...", "..."]
+alignment:
+  enabled: true
 output:
   formats: [parquet, csv]
 ```
@@ -74,13 +76,46 @@ significance brackets then align across facets too, since they anchor to the tal
 
 On the CCDF the metric lives on the x-axis, so `facet_share_y` ties the x-axes there.
 
+## Quality control
+
+Per-channel spill (saturated-sample) and zero-sample fractions are **always** computed and
+written to `per_fly` as `spill_fraction` / `zero_fraction`, alongside the `spill`,
+`unconnected` and `non_eater` flags — so a removal is always auditable rather than silent.
+Two toggles decide whether flagged channels are actually dropped before per-condition
+aggregation:
+
+| Option | `matlab_compat` | `corrected` | Effect |
+|--------|-----------------|-------------|--------|
+| `remove_spill_quality` | `false` | `true` | Drop channels whose saturated fraction exceeds `spill_quality_threshold` (0.5). |
+| `remove_unconnected` | `false` | `true` | Drop channels whose zero fraction exceeds `unconnected_zero_fraction` (0.5). |
+
+`matlab_compat` computes but does not auto-remove, matching v2.2. If you switch a dataset
+from `matlab_compat` to `corrected`, expect per-condition counts to change: that is the
+removal taking effect, and `per_fly` tells you exactly which channels went.
+
+## Arena alignment
+
+Arenas are loaded by hand, minutes apart, so a channel's experiment does not begin when the
+recording does. With a manual fill-timestamp sidecar present, `alignment.enabled` (on in
+`corrected`) shifts every channel to its own arena start and trims all channels to a common
+duration, so time courses and rasters compare like with like.
+
+| Option | Default | Effect |
+|--------|---------|--------|
+| `alignment.enabled` | `true` (`corrected`) | Align each arena to its fill timestamp. No-op when no sidecar is found. |
+| `alignment.window_samples` | `null` | Analysis window per channel; `null` trims to the shortest aligned channel. |
+
+Exported indices stay raw-file sample positions, and the raster shows the unaligned
+recording next to the aligned one so you can see what the shift did.
+
 ## Key sections
 
 | Section | What it controls |
 |---------|------------------|
 | `hardware` / `acquisition` | channel count, sampling rate, duration, dtype |
 | `metadata` | board geometry, condition / substrate labels |
-| `quality_control` | spill / unconnected thresholds |
+| `quality_control` | spill / unconnected thresholds and auto-removal toggles |
+| `alignment` | per-arena alignment to manual fill timestamps |
 | `preprocessing` | median kernel, baseline span, edge handling |
 | `activity_bouts` | RMS window / threshold |
 | `sip_detection` | threshold strategy, pairing, duration & amplitude gates |
