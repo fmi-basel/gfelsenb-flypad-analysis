@@ -67,3 +67,9 @@ Drag the recordings folder onto the drop area, point *Config YAML* at
 `configs/example_experiment.yaml`, pick a metric, and press **Run analysis**. Progress
 streams to the bar; when it finishes the per-condition table and an interactive dashboard
 appear, and the same files are written to the output directory.
+
+The GUI and `flypad run` drive the same pipeline, so the results directory is identical
+either way — tables, figures and the `run_info.json` / `config.used.yaml` provenance pair.
+`run_info.json` records which one produced it in its `command` field (`run` or `gui`), and
+because `config.used.yaml` is there, a later `flypad stats` on that directory reuses the
+run's own settings rather than falling back to defaults.

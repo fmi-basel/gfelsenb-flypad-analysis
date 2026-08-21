@@ -98,6 +98,26 @@ def test_run_pipeline_job_synthetic(tmp_path: Path) -> None:
     assert (tmp_path / "out" / "per_fly.csv").exists()
 
 
+def test_run_pipeline_job_writes_provenance(tmp_path: Path) -> None:
+    """A GUI run leaves the same self-describing directory the CLI does (#1)."""
+    import json
+
+    from flypad.config import load_config
+
+    data_dir, cfg_path = _make_dataset(tmp_path)
+    out = tmp_path / "out"
+    result = run_pipeline_job(
+        data_dir, load_config(cfg_path, preset="matlab_compat"), out, make_plots=False
+    )
+    assert (out / "config.used.yaml").exists()
+    info = json.loads((out / "run_info.json").read_text())
+    assert info["command"] == "gui"  # tagged as the GUI's, otherwise identical to a CLI run
+    assert info["n_sips"] == result.n_sips and info["n_flies_kept"] == result.n_flies_kept
+    assert {p.name for p in (out / "run_info.json", out / "config.used.yaml")} <= {
+        p.name for p in result.written
+    }
+
+
 def test_pipeline_worker_emits_finished(qapp: QApplication, tmp_path: Path) -> None:
     data_dir, cfg_path = _make_dataset(tmp_path)
     from flypad.config import load_config

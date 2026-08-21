@@ -1,43 +1,26 @@
 """Background pipeline execution for the GUI (design §4, M8).
 
-The heavy lifting is a plain, Qt-free function (:func:`run_pipeline_job`) so it can be
-unit-tested directly; :class:`PipelineWorker` is the thin ``QObject`` that runs it on a
-worker thread and re-emits progress/result/error as Qt signals (keeping the UI
+The heavy lifting is :func:`flypad.pipeline.run_experiment`, shared with ``flypad run``
+so the two entry points cannot drift apart; :func:`run_pipeline_job` is the Qt-free
+delegation to it and :class:`PipelineWorker` the thin ``QObject`` that runs it on a
+worker thread, re-emitting progress/result/error as Qt signals (keeping the UI
 responsive — the coupling bug the old port had).
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
 from pathlib import Path
 
-import pandas as pd
 from qtpy.QtCore import QObject, Signal  # type: ignore[attr-defined]
 
 from flypad.config.models import Config
-from flypad.pipeline import (
-    absolute_onsets,
-    build_tables,
-    detect_experiment,
-    render_figures,
-    write_tables,
-)
+from flypad.pipeline import ExperimentResult, run_experiment
 
 Progress = Callable[[str], None]
 
-
-@dataclass
-class JobResult:
-    """Outcome of a full GUI pipeline run."""
-
-    out_dir: Path
-    n_files: int
-    n_sips: int
-    n_flies_kept: int
-    written: list[Path]
-    per_fly: pd.DataFrame
-    per_condition: pd.DataFrame
+#: Outcome of a full GUI pipeline run — the same result the CLI gets.
+JobResult = ExperimentResult
 
 
 def run_pipeline_job(
@@ -48,38 +31,20 @@ def run_pipeline_job(
     make_plots: bool = True,
     progress: Progress | None = None,
 ) -> JobResult:
-    """Run detect → tables → (figures) → write and summarise the result.
+    """Run the pipeline for the GUI and summarise the result.
 
-    Pure orchestration over :mod:`flypad.pipeline`; no Qt here.
+    A thin delegation to :func:`flypad.pipeline.run_experiment` — the orchestration
+    itself is shared with ``flypad run`` so the two cannot drift apart. It is tagged
+    ``command="gui"`` in ``run_info.json``; everything else about the results directory
+    is identical.
     """
-    detection = detect_experiment(data_dir, config, progress=progress)
-    if progress is not None:
-        progress("building tables")
-    tables = build_tables(detection, config)
-    written = write_tables(tables, out_dir, formats=config.output.formats)
-    if make_plots and config.plotting.enabled:
-        written += render_figures(
-            tables["per_fly"],
-            tables["events"],
-            out_dir,
-            config,
-            comparisons=tables["comparisons"],
-            n_samples=detection.n_samples,
-            data_dir=data_dir,
-            events_absolute=absolute_onsets(detection),
-            progress=progress,
-        )
-    from flypad.stats import apply_qc_removal
-
-    kept = len(apply_qc_removal(tables["per_fly"]))
-    return JobResult(
-        out_dir=Path(out_dir),
-        n_files=len(detection.files),
-        n_sips=len(tables["events"]),
-        n_flies_kept=kept,
-        written=written,
-        per_fly=tables["per_fly"],
-        per_condition=tables["per_condition"],
+    return run_experiment(
+        data_dir,
+        config,
+        out_dir,
+        make_plots=make_plots,
+        command="gui",
+        progress=progress,
     )
 
 

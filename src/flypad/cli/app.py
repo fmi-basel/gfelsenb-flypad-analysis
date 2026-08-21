@@ -36,53 +36,24 @@ def run(
 ) -> None:
     """Run the full pipeline on a folder of recordings."""
     from flypad.config import load_config
-    from flypad.pipeline import (
-        absolute_onsets,
-        build_tables,
-        detect_experiment,
-        render_figures,
-        write_provenance,
-        write_tables,
-    )
+    from flypad.pipeline import run_experiment
 
     cfg = load_config(config, preset=mode, overrides=set_)
     out_dir = out or cfg.output.dir
 
-    detection = detect_experiment(data_dir, cfg, progress=console.log)
-    console.log("building tables")
-    tables = build_tables(detection, cfg)
-    written = write_tables(tables, out_dir, formats=cfg.output.formats)
-    if plots and cfg.plotting.enabled:
-        written += render_figures(
-            tables["per_fly"],
-            tables["events"],
-            out_dir,
-            cfg,
-            comparisons=tables["comparisons"],
-            n_samples=detection.n_samples,
-            data_dir=data_dir,
-            events_absolute=absolute_onsets(detection),
-            progress=console.log,
-        )
-
-    from flypad.stats import apply_qc_removal
-
-    kept = len(apply_qc_removal(tables["per_fly"]))
-    written += write_provenance(
-        out_dir,
+    # The same orchestration the GUI drives, so both produce identical directories.
+    result = run_experiment(
+        data_dir,
         cfg,
-        files=detection.files,
+        out_dir,
+        make_plots=plots,
         command="run",
-        extra={
-            "n_sips": len(tables["events"]),
-            "n_flies_kept": kept,
-            "n_samples_recorded": detection.n_samples,
-        },
+        progress=console.log,
     )
     console.print(
-        f"[green]done[/] {len(detection.files)} files · "
-        f"{len(tables['events']):,} sips · {kept} flies kept · "
-        f"{len(written)} files written to [bold]{out_dir}[/]"
+        f"[green]done[/] {result.n_files} files · "
+        f"{result.n_sips:,} sips · {result.n_flies_kept} flies kept · "
+        f"{len(result.written)} files written to [bold]{out_dir}[/]"
     )
 
 
