@@ -8,10 +8,11 @@ activity bouts → feeding bursts & QC → statistics & figures).
 - **Fully YAML-configurable** (Pydantic-validated); no hard-coded parameters.
 - **Library + CLI + GUI** over one Qt-free core.
 
-> Status: **v0.1.0 — M0–M9 complete.** The full scientific pipeline (detect → post-process →
-> stats → figures) runs end-to-end from the CLI and the PySide6 GUI, with docs, packaging, and a
-> tag-triggered release workflow in place. See `CHANGELOG.md` for the release notes and
-> `flypad_new_software_design.html` for the architecture and decisions log.
+> Status: **v0.2.0.** The full scientific pipeline (detect → post-process → stats → figures)
+> runs end-to-end from the CLI and the PySide6 GUI, with docs, packaging, and a tag-triggered
+> release workflow in place. v0.2.0 adds substrate/recording faceting with pairwise statistics,
+> automatic QC channel removal, and arena-fill alignment. See `CHANGELOG.md` for the release
+> notes and `flypad_new_software_design.html` for the architecture and decisions log.
 
 ## Quickstart (uv)
 

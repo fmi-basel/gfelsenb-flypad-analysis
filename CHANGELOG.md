@@ -4,7 +4,7 @@ All notable changes to **flypad** are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.2.0] - 2026-08-21
 
 ### Added
 - **Faceting & pairwise stats** — one axis per substrate/recording (`plotting.facet_by`)
@@ -64,4 +64,5 @@ mode for the known bug-fixes.
 - **GUI** — PySide6 desktop app (drag-drop, schema-driven config panel, progress bar,
   metric selector, embedded interactive dashboard) over the same pipeline.
 
+[0.2.0]: https://github.com/fmi-basel/gfelsenb-flypad-analysis/releases/tag/v0.2.0
 [0.1.0]: https://github.com/fmi-basel/gfelsenb-flypad-analysis/releases/tag/v0.1.0
