@@ -21,6 +21,13 @@ All notable changes to **flypad** are documented here. The format follows
   shared scale.
 
 ### Fixed
+- GUI runs write `run_info.json` and `config.used.yaml` like the CLI does
+  ([#1](https://github.com/fmi-basel/gfelsenb-flypad-analysis/issues/1)). The CLI and the
+  GUI each had their own copy of the pipeline sequence and the GUI's omitted the
+  provenance step; both now drive one `pipeline.run_experiment()`, so a results directory
+  is identical whichever produced it (`run_info.json` records which, as `command`). This
+  also fixes `flypad stats` silently falling back to a default config — instead of the
+  run's — on GUI-produced directories.
 - Significance brackets are laid out in final axes fractions and no longer escape the
   axes over the facet title; with many pairs the stack compresses so the data always
   keeps at least half the axis height.

@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import pytest
+import yaml
 from typer.testing import CliRunner
 
 from flypad.cli.app import app
@@ -84,6 +86,84 @@ def test_run_no_plots(tmp_path: Path) -> None:
     _invoke(["run", str(data_dir), "-c", str(cfg), "-o", str(out), "--no-plots"])
     assert (out / "per_condition.csv").exists()
     assert not (out / "figures").exists()
+
+
+# --------------------------------------------------------------------------- #
+# CLI / GUI consistency: both drive pipeline.run_experiment, so a results directory
+# is the same whichever produced it (#1 — the GUI's own copy of the sequence had
+# silently omitted the provenance sidecars).
+# --------------------------------------------------------------------------- #
+def _run_via_cli(data_dir: Path, cfg: Path, out: Path) -> None:
+    _invoke(["run", str(data_dir), "-c", str(cfg), "-o", str(out), "--no-plots"])
+
+
+def _run_via_shared_orchestration(data_dir: Path, cfg: Path, out: Path) -> object:
+    """What the GUI calls, minus Qt — `run_pipeline_job` is a delegation to this."""
+    from flypad.config import load_config
+    from flypad.pipeline import run_experiment
+
+    return run_experiment(
+        data_dir, load_config(cfg, preset="matlab_compat"), out, make_plots=False, command="gui"
+    )
+
+
+def test_run_writes_provenance(tmp_path: Path) -> None:
+    data_dir, cfg = _make_dataset(tmp_path)
+    out = tmp_path / "results"
+    _run_via_cli(data_dir, cfg, out)
+    info = json.loads((out / "run_info.json").read_text())
+    assert info["command"] == "run"
+    assert (out / "config.used.yaml").exists()
+
+
+def test_cli_and_gui_produce_the_same_files(tmp_path: Path) -> None:
+    data_dir, cfg = _make_dataset(tmp_path)
+    cli_out, gui_out = tmp_path / "cli", tmp_path / "gui"
+    _run_via_cli(data_dir, cfg, cli_out)
+    _run_via_shared_orchestration(data_dir, cfg, gui_out)
+    assert {p.name for p in cli_out.iterdir()} == {p.name for p in gui_out.iterdir()}
+    # both write the provenance sidecars, which is what the GUI used to skip
+    assert {"run_info.json", "config.used.yaml"} <= {p.name for p in gui_out.iterdir()}
+
+
+def test_cli_and_gui_produce_the_same_tables(tmp_path: Path) -> None:
+    data_dir, cfg = _make_dataset(tmp_path)
+    cli_out, gui_out = tmp_path / "cli", tmp_path / "gui"
+    _run_via_cli(data_dir, cfg, cli_out)
+    _run_via_shared_orchestration(data_dir, cfg, gui_out)
+    for name in ("events", "per_fly", "per_condition", "comparisons"):
+        pd.testing.assert_frame_equal(
+            pd.read_csv(cli_out / f"{name}.csv"), pd.read_csv(gui_out / f"{name}.csv")
+        )
+
+
+def test_cli_and_gui_run_info_differs_only_by_command_and_timestamp(tmp_path: Path) -> None:
+    data_dir, cfg = _make_dataset(tmp_path)
+    cli_out, gui_out = tmp_path / "cli", tmp_path / "gui"
+    _run_via_cli(data_dir, cfg, cli_out)
+    _run_via_shared_orchestration(data_dir, cfg, gui_out)
+    cli_info = json.loads((cli_out / "run_info.json").read_text())
+    gui_info = json.loads((gui_out / "run_info.json").read_text())
+    assert (cli_info["command"], gui_info["command"]) == ("run", "gui")
+    volatile = {"command", "timestamp"}
+    assert {k: v for k, v in cli_info.items() if k not in volatile} == {
+        k: v for k, v in gui_info.items() if k not in volatile
+    }
+    # same config in, same config hash out — the directories are interchangeable
+    assert cli_info["config_hash"] == gui_info["config_hash"]
+    assert (cli_out / "config.used.yaml").read_text() == (gui_out / "config.used.yaml").read_text()
+
+
+def test_stats_reuses_the_gui_runs_config(tmp_path: Path) -> None:
+    """`flypad stats` fell back to a default Config on GUI directories (#1)."""
+    from flypad.config.models import Config
+
+    data_dir, cfg_path = _make_dataset(tmp_path)
+    out = tmp_path / "gui"
+    _run_via_shared_orchestration(data_dir, cfg_path, out)
+    used = Config.model_validate(yaml.safe_load((out / "config.used.yaml").read_text()))
+    assert used.mode.value == "matlab_compat"  # not the default-constructed Config()
+    _invoke(["stats", str(out), "--metric", "n_sips"])
 
 
 def test_run_set_override(tmp_path: Path) -> None:

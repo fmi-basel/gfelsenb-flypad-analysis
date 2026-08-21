@@ -399,6 +399,90 @@ def write_provenance(
     return [run_info, used]
 
 
+@dataclass
+class ExperimentResult:
+    """Everything a completed run produced: tables, written paths, headline counts."""
+
+    out_dir: Path
+    files: list[Path]
+    tables: dict[str, pd.DataFrame]
+    written: list[Path]
+    n_sips: int
+    n_flies_kept: int
+    n_samples: int
+
+    @property
+    def n_files(self) -> int:
+        return len(self.files)
+
+    @property
+    def per_fly(self) -> pd.DataFrame:
+        return self.tables["per_fly"]
+
+    @property
+    def per_condition(self) -> pd.DataFrame:
+        return self.tables["per_condition"]
+
+
+def run_experiment(
+    data_dir: str | Path,
+    config: Config,
+    out_dir: str | Path,
+    *,
+    make_plots: bool = True,
+    command: str = "run",
+    progress: Progress | None = None,
+) -> ExperimentResult:
+    """Run the full pipeline: detect → tables → figures → write, provenance included.
+
+    The single orchestration behind both ``flypad run`` and the GUI, so a results
+    directory is the same whichever produced it. ``command`` is recorded in
+    ``run_info.json`` to say which one did (``"run"`` / ``"gui"``).
+
+    Keeping this in one place is deliberate: when the CLI and the GUI each had their own
+    copy of the sequence, the GUI's silently omitted :func:`write_provenance`, which also
+    made ``flypad stats`` fall back to a default config on those directories (#1).
+    """
+    detection = detect_experiment(data_dir, config, progress=progress)
+    _emit(progress, "building tables")
+    tables = build_tables(detection, config)
+    written = write_tables(tables, out_dir, formats=config.output.formats)
+    if make_plots and config.plotting.enabled:
+        written += render_figures(
+            tables["per_fly"],
+            tables["events"],
+            out_dir,
+            config,
+            comparisons=tables["comparisons"],
+            n_samples=detection.n_samples,
+            data_dir=data_dir,
+            events_absolute=absolute_onsets(detection),
+            progress=progress,
+        )
+    kept = len(apply_qc_removal(tables["per_fly"]))
+    n_sips = len(tables["events"])
+    written += write_provenance(
+        out_dir,
+        config,
+        files=detection.files,
+        command=command,
+        extra={
+            "n_sips": n_sips,
+            "n_flies_kept": kept,
+            "n_samples_recorded": detection.n_samples,
+        },
+    )
+    return ExperimentResult(
+        out_dir=Path(out_dir),
+        files=detection.files,
+        tables=tables,
+        written=written,
+        n_sips=n_sips,
+        n_flies_kept=kept,
+        n_samples=detection.n_samples,
+    )
+
+
 def read_table(results_dir: str | Path, name: str) -> pd.DataFrame:
     """Read a saved table by name, preferring parquet over csv."""
     out = Path(results_dir).expanduser()
